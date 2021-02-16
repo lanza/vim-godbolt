@@ -1,5 +1,5 @@
 
-let g:godbolt_cpp_args = "-std=c+=20"
+let g:godbolt_cpp_args = "-std=c++20"
 let g:godbolt_c_args = "-std=c17"
 let g:godbolt_swift_args = ""
 
