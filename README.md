@@ -16,8 +16,8 @@ shown):
 
 ```
 # define the compiler you want to use
-let g:godbolt_swiftc = '/usr/binswiftc' # defaults to '/usr/bin/swiftc'
-let g:godbolt_clang = 'clang' # defaults to 'clang'
+let g:godbolt_swiftc = 'swiftc'
+let g:godbolt_clang = 'clang'
 
 # define some extra args to include
 let g:godbolt_cpp_args = "-std=c++20"
