@@ -4,7 +4,7 @@ let g:godbolt_c_args = "-std=c17"
 let g:godbolt_swift_args = ""
 
 let g:godbolt_clang = 'clang'
-let g:godbolt_swiftc = '/usr/bin/swiftc'
+let g:godbolt_swiftc = 'swiftc'
 
 function! g:Godbolt(...)
   let l:args = join(a:000, ' ')
