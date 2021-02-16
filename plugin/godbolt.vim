@@ -3,7 +3,7 @@ let g:godbolt_cpp_args = "-std=c+=20"
 let g:godbolt_c_args = "-std=c17"
 let g:godbolt_swift_args = ""
 
-let g:godbolt_clang = '/Users/lanza/.llvm/bin/clang'
+let g:godbolt_clang = 'clang'
 let g:godbolt_swiftc = '/usr/bin/swiftc'
 
 function! g:Godbolt(...)
