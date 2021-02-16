@@ -6,3 +6,7 @@ the rest of the line will be appended to the list of arguments. You can see an
 example here:
 
 ![](sample.png)
+
+This also works for Swift:
+
+![](swift.png)
