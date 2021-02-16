@@ -24,3 +24,10 @@ let g:godbolt_cpp_args = "-std=c++20"
 let g:godbolt_c_args = "-std=c17"
 let g:godbolt_swift_args = ""
 ```
+
+Todo?:
+* Read from a `compile_commands.json` file.
+* Add a different command for `-Xclang -fsyntax-only -Xclang -ast-dump`
+* Add a different command for `-emit-llvm`
+* Add a different command to run `-flto`
+* Parse away some of the cfi statements.
