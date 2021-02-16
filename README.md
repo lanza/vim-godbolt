@@ -10,3 +10,17 @@ example here:
 This also works for Swift:
 
 ![](swift.png)
+
+The following variables can be used to modify the behavior (the defaults are
+shown):
+
+```
+# define the compiler you want to use
+let g:godbolt_swiftc = '/usr/binswiftc' # defaults to '/usr/bin/swiftc'
+let g:godbolt_clang = 'clang' # defaults to 'clang'
+
+# define some extra args to include
+let g:godbolt_cpp_args = "-std=c++20"
+let g:godbolt_c_args = "-std=c17"
+let g:godbolt_swift_args = ""
+```
