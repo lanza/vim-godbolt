@@ -24,7 +24,7 @@ function! g:Godbolt(...)
   setlocal bufhidden=hide
   setlocal noswapfile
   setlocal nonumber
-  let l:file_and_args = l:file . " " . l:args
+  let l:file_and_args = "\"" . l:file . "\"" . " " . l:args
   if l:file =~ "cpp"
     let l:cmd = ".!" . g:godbolt_clang . '++ '
           \ . l:file_and_args . " "
