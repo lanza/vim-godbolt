@@ -26,29 +26,29 @@ function! g:Godbolt(...)
   setlocal nonumber
   let l:file_and_args = "\"" . l:file . "\"" . " " . l:args
   if l:file =~ "cpp"
-    let l:cmd = ".!" . g:godbolt_clang . '++ '
+    let g:last_godbolt_cmd = ".!" . g:godbolt_clang . '++ '
           \ . l:file_and_args . " "
           \ . l:emission . " "
           \ . l:buffer_args . " "
           \ . g:godbolt_cpp_args . " "
           \ . " -masm=intel -o -"
   elseif l:file =~ "swift"
-    let l:cmd = ".!" . g:godbolt_swiftc . ' '
+    let g:last_godbolt_cmd = ".!" . g:godbolt_swiftc . ' '
           \ . l:file_and_args . " "
           \. l:emission . " "
           \ . l:buffer_args . " "
           \ . g:godbolt_swift_args . " "
           \ . " -Xllvm --x86-asm-syntax=intel -o - | xcrun swift-demangle"
   else
-    let l:cmd = ".!" . g:godbolt_clang . ' '
+    let g:last_godbolt_cmd = ".!" . g:godbolt_clang . ' '
           \ . l:file_and_args . " "
           \ . l:emission . " "
           \ . l:buffer_args . " "
           \ . g:godbolt_c_args
           \ . " -masm=intel -o -"
   endif
-  echom l:cmd
-  execute(l:cmd)
+  echom g:last_godbolt_cmd
+  execute(g:last_godbolt_cmd)
 endfunction
 
 command! -nargs=* Godbolt :call g:Godbolt(<q-args>)
