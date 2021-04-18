@@ -1,10 +1,20 @@
 
-let g:godbolt_cpp_args = "-std=c++20"
-let g:godbolt_c_args = "-std=c17"
-let g:godbolt_swift_args = ""
+if !exists("g:godbolt_cpp_args")
+  let g:godbolt_cpp_args = "-std=c++20"
+endif
+if !exists("g:godbolt_c_args")
+  let g:godbolt_c_args = "-std=c17"
+endif
+if !exists("g:godbolt_swift_args")
+  let g:godbolt_swift_args = ""
+endif
 
-let g:godbolt_clang = 'clang'
-let g:godbolt_swiftc = 'swiftc'
+if !exists("g:godbolt_clang")
+  let g:godbolt_clang = 'clang'
+endif
+if !exists("g:godbolt_swift")
+  let g:godbolt_swiftc = 'swiftc'
+endif
 
 function! g:Godbolt(...)
   let l:args = join(a:000, ' ')
