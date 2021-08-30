@@ -28,8 +28,12 @@ function! g:Godbolt(...)
     let l:buffer_args = ""
   endif
   "echom l:buffer_args
-  vertical botright new
   setlocal ft=asm
+  if exists("g:godbolt_window_cmd")
+    execute g:godbolt_window_cmd
+  else
+    vertical botright new
+  endif
   setlocal buftype=nofile
   setlocal bufhidden=hide
   setlocal noswapfile
