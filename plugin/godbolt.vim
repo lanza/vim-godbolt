@@ -28,11 +28,15 @@ function! g:Godbolt(...)
     let l:buffer_args = ""
   endif
   "echom l:buffer_args
-  setlocal ft=asm
   if exists("g:godbolt_window_cmd")
     execute g:godbolt_window_cmd
   else
     vertical botright new
+  endif
+  if l:buffer_args =~ '-emit-llvm'
+    setlocal ft=llvm
+  else
+    setlocal ft=asm
   endif
   setlocal buftype=nofile
   setlocal bufhidden=hide
