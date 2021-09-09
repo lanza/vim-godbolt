@@ -47,25 +47,23 @@ function! g:Godbolt(...)
     let g:last_godbolt_cmd = ".!" . g:godbolt_clang . '++ '
           \ . l:file_and_args . " "
           \ . l:emission . " "
-          \ . l:buffer_args . " "
           \ . " -fno-asynchronous-unwind-tables "
           \ . " -masm=intel "
           \ . g:godbolt_cpp_args . " "
+          \ . l:buffer_args . " "
           \ . " -o - "
   elseif l:file =~ "swift"
     let g:last_godbolt_cmd = ".!" . g:godbolt_swiftc . ' '
           \ . l:file_and_args . " "
           \. l:emission . " "
-          \ . l:buffer_args . " "
           \ . g:godbolt_swift_args . " "
           \ . " -Xllvm --x86-asm-syntax=intel -o - | xcrun swift-demangle"
+          \ . l:buffer_args . " "
   else
     let g:last_godbolt_cmd = ".!" . g:godbolt_clang . ' '
           \ . l:file_and_args . " "
           \ . l:emission . " "
-          \ . l:buffer_args . " "
           \ . g:godbolt_c_args
-          \ . " -masm=intel -o -"
   endif
   echom g:last_godbolt_cmd
   execute(g:last_godbolt_cmd)
