@@ -48,6 +48,7 @@ function! g:Godbolt(...)
           \ . l:file_and_args . " "
           \ . l:emission . " "
           \ . l:buffer_args . " "
+          \ . " -fno-asynchronous-unwind-tables "
           \ . g:godbolt_cpp_args . " "
           \ . " -masm=intel -o -"
   elseif l:file =~ "swift"
