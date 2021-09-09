@@ -49,8 +49,9 @@ function! g:Godbolt(...)
           \ . l:emission . " "
           \ . l:buffer_args . " "
           \ . " -fno-asynchronous-unwind-tables "
+          \ . " -masm=intel "
           \ . g:godbolt_cpp_args . " "
-          \ . " -masm=intel -o -"
+          \ . " -o - "
   elseif l:file =~ "swift"
     let g:last_godbolt_cmd = ".!" . g:godbolt_swiftc . ' '
           \ . l:file_and_args . " "
