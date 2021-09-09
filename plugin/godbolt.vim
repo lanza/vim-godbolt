@@ -55,7 +55,7 @@ function! g:Godbolt(...)
   elseif l:file =~ "swift"
     let g:last_godbolt_cmd = ".!" . g:godbolt_swiftc . ' '
           \ . l:file_and_args . " "
-          \. l:emission . " "
+          \ . l:emission . " "
           \ . g:godbolt_swift_args . " "
           \ . " -Xllvm --x86-asm-syntax=intel -o - | xcrun swift-demangle"
           \ . l:buffer_args . " "
