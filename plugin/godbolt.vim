@@ -72,6 +72,7 @@ function! g:Godbolt(...)
   endif
   echom g:last_godbolt_cmd
   execute(g:last_godbolt_cmd)
+  doautocmd User VimGodbolt
 endfunction
 
 command! -nargs=* Godbolt :call g:Godbolt(<q-args>)
