@@ -60,7 +60,17 @@ function! g:Godbolt(...)
           \ . g:godbolt_swift_args . " "
           \ . l:buffer_args . " "
           \ . " -o - | xcrun swift-demangle"
+  elseif l:file =~ ".c"
+    let g:last_godbolt_cmd = ".!" . g:godbolt_clang . ' '
+          \ . l:file_and_args . " "
+          \ . l:emission . " "
+          \ . " -fno-asynchronous-unwind-tables "
+          \ . " -masm=intel "
+          \ . g:godbolt_c_args
+          \ . l:buffer_args . " "
+          \ . " -o - "
   else
+    # this is just a duplicate of the above c case
     let g:last_godbolt_cmd = ".!" . g:godbolt_clang . ' '
           \ . l:file_and_args . " "
           \ . l:emission . " "
