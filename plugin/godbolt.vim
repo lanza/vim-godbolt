@@ -70,7 +70,7 @@ function! g:Godbolt(...)
           \ . l:buffer_args . " "
           \ . " -o - "
   else
-    # this is just a duplicate of the above c case
+    " this is just a duplicate of the above c case
     let g:last_godbolt_cmd = ".!" . g:godbolt_clang . ' '
           \ . l:file_and_args . " "
           \ . l:emission . " "
@@ -82,7 +82,9 @@ function! g:Godbolt(...)
   endif
   echom g:last_godbolt_cmd
   execute(g:last_godbolt_cmd)
-  doautocmd User VimGodbolt
+  if exists('#User#VimdGodbolt')
+    doautocmd User VimGodbolt
+  endif
 endfunction
 
 command! -nargs=* Godbolt :call g:Godbolt(<q-args>)
