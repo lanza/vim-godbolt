@@ -87,7 +87,5 @@ function! g:Godbolt(...)
   endif
 endfunction
 
-command! -nargs=* Godbolt :call g:Godbolt(<q-args>)
-
-nnoremap \gb :Godbolt<CR>
+command! -nargs=* VGodbolt :call g:Godbolt(<q-args>)
 
