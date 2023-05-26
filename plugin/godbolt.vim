@@ -1,4 +1,3 @@
-
 if !exists("g:godbolt_cpp_args")
   let g:godbolt_cpp_args = "-std=c++20"
 endif
@@ -8,12 +7,18 @@ endif
 if !exists("g:godbolt_swift_args")
   let g:godbolt_swift_args = ""
 endif
+if !exists("g:godbolt_ll_args")
+  let g:godbolt_ll_args = ""
+endif
 
 if !exists("g:godbolt_clang")
   let g:godbolt_clang = 'clang'
 endif
 if !exists("g:godbolt_swift")
   let g:godbolt_swiftc = 'swiftc'
+endif
+if !exists("g:godbolt_opt")
+  let g:godbolt_opt = 'opt'
 endif
 
 function! g:Godbolt(...)
@@ -22,8 +27,10 @@ function! g:Godbolt(...)
   let l:emission = " -S "
   let l:first_line = getbufline(bufnr("%"), 1, 1)[0]
   "echom l:first_line
-  if l:first_line =~? "godbolt"
+  if l:first_line =~? "// godbolt"
     let l:buffer_args = substitute(l:first_line, "// godbolt:", "", "")
+  elseif l:first_line =~? "; godbolt"
+    let l:buffer_args = substitute(l:first_line, "; godbolt:", "", "")
   else
     let l:buffer_args = ""
   endif
@@ -69,6 +76,14 @@ function! g:Godbolt(...)
           \ . g:godbolt_c_args
           \ . l:buffer_args . " "
           \ . " -o - "
+  elseif l:file =~ ".ll"
+    let g:last_godbolt_cmd = ".!" . g:godbolt_opt . ' '
+          \ . l:file_and_args . " "
+          \ . l:emission . " "
+          \ . g:godbolt_ll_args . " "
+          \ . l:buffer_args . " "
+          \ . " -o - "
+    setlocal ft=llvm
   else
     " this is just a duplicate of the above c case
     let g:last_godbolt_cmd = ".!" . g:godbolt_clang . ' '
