@@ -55,6 +55,7 @@ function! g:Godbolt(...)
           \ . l:file_and_args . " "
           \ . l:emission . " "
           \ . " -fno-asynchronous-unwind-tables "
+          \ . " -fno-discard-value-names "
           \ . " -masm=intel "
           \ . g:godbolt_cpp_args . " "
           \ . l:buffer_args . " "
