@@ -40,7 +40,19 @@ function M.run_pipeline(input_file, passes_str)
     return nil
   end
 
-  return M.parse_pipeline_output(output)
+  -- Parse the pipeline output to get passes
+  local passes = M.parse_pipeline_output(output)
+
+  -- Prepend the initial state from the input file
+  local initial_ir = M.read_input_file(input_file)
+  if initial_ir and #initial_ir > 0 then
+    table.insert(passes, 1, {
+      name = "Input",
+      ir = initial_ir,
+    })
+  end
+
+  return passes
 end
 
 -- Parse opt --print-after-all output into pass stages
@@ -189,6 +201,34 @@ function M.ir_equal(ir1, ir2)
   end
 
   return true
+end
+
+-- Read and parse the input LLVM IR file
+-- @param input_file: path to .ll file
+-- @return: array of IR lines
+function M.read_input_file(input_file)
+  local file = io.open(input_file, "r")
+  if not file then
+    if M.debug then
+      print("[Pipeline Debug] Failed to open input file: " .. input_file)
+    end
+    return {}
+  end
+
+  local content = file:read("*all")
+  file:close()
+
+  -- Split into lines
+  local lines = {}
+  for line in content:gmatch("[^\r\n]+") do
+    table.insert(lines, line)
+  end
+
+  if M.debug then
+    print(string.format("[Pipeline Debug] Read %d lines from input file", #lines))
+  end
+
+  return lines
 end
 
 return M

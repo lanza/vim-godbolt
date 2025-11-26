@@ -230,6 +230,7 @@ function M.update_pass_list_cursor(index)
   vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', true)
 
   local lines = vim.api.nvim_buf_get_lines(M.state.pass_list_bufnr, 0, -1, false)
+  local target_line_num = nil
 
   for i, line in ipairs(lines) do
     -- Remove old markers
@@ -237,28 +238,21 @@ function M.update_pass_list_cursor(index)
       lines[i] = " " .. line:sub(2)
     end
 
-    -- Add new marker (line number = header(3) + pass index)
-    local pass_line_num = 3 + index
-    if M.state.config.show_stats and index > 1 then
-      -- Account for stats lines (each pass after first has an extra line)
-      pass_line_num = pass_line_num + (index - 2)
-    end
-
-    if i == pass_line_num then
+    -- Find the line for this pass index by matching the pattern
+    local pass_idx = line:match("^.%s*(%d+)%.")
+    if pass_idx and tonumber(pass_idx) == index then
       lines[i] = ">" .. line:sub(2)
+      target_line_num = i
     end
   end
 
   vim.api.nvim_buf_set_lines(M.state.pass_list_bufnr, 0, -1, false, lines)
   vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', false)
 
-  -- Move cursor to the marked line in pass list
-  local cursor_line = 3 + index
-  if M.state.config.show_stats and index > 1 then
-    cursor_line = cursor_line + (index - 2)
+  -- Move cursor to the marked line
+  if target_line_num then
+    vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {target_line_num, 0})
   end
-
-  vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {cursor_line, 0})
 end
 
 -- Show statistics for current pass
