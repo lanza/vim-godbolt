@@ -13,6 +13,13 @@ M.config = {
   ll_args = "",
 
   window_cmd = nil,
+
+  -- Line mapping configuration
+  line_mapping = {
+    enabled = true,
+    auto_scroll = false,
+    throttle_ms = 150,
+  },
 }
 
 -- Setup function to override defaults
@@ -27,17 +34,17 @@ local function detect_output_type(all_args, file)
     return "llvm"
   end
 
-  -- Check for various emit flags
-  if all_args:match("-emit%-llvm") then
+  -- Check for various emit flags (using plain string find for simple cases)
+  if all_args:find("-emit-llvm", 1, true) then
     return "llvm"
-  elseif all_args:match("-emit%-cir") then
-    return "cir"  -- ClangIR
-  elseif all_args:match("-emit%-ast") then
+  elseif all_args:find("-emit-cir", 1, true) then
+    return "cir"
+  elseif all_args:find("-emit-ast", 1, true) then
     return "ast"
-  elseif all_args:match("-emit%-obj") or all_args:match("-c%s") or all_args:match("-c$") then
-    return "objdump"  -- Binary object file
+  elseif all_args:find("-emit-obj", 1, true) or all_args:match("-c%s") or all_args:match("-c$") then
+    return "objdump"
   else
-    return "asm"  -- Default to assembly
+    return "asm"
   end
 end
 
@@ -57,91 +64,87 @@ local function set_output_filetype(output_type)
 end
 
 -- Main godbolt function
-function M.godbolt(...)
-  local args = table.concat({ ... }, " ")
+function M.godbolt(args_str)
+  args_str = args_str or ""
   local file = vim.fn.expand("%")
-  local emission = " -S "
+  local source_bufnr = vim.fn.bufnr("%")
 
-  -- Get first line to check for godbolt comments
-  local first_line = vim.fn.getbufline(vim.fn.bufnr("%"), 1, 1)[1] or ""
+  -- Parse first-line godbolt comment
+  local first_line = vim.fn.getbufline(source_bufnr, 1, 1)[1] or ""
   local buffer_args = ""
-
   if first_line:match("^//[%s]*godbolt:") then
     buffer_args = first_line:gsub("^//[%s]*godbolt:", "")
   elseif first_line:match("^;[%s]*godbolt:") then
     buffer_args = first_line:gsub("^;[%s]*godbolt:", "")
   end
 
-  -- Detect output type from all arguments
-  local all_args = args .. " " .. buffer_args
+  -- Determine compiler and base args based on file type
+  local compiler, lang_args, postprocess
+  if file:match("%.cpp$") then
+    compiler = M.config.clang .. "++"
+    lang_args = M.config.cpp_args
+  elseif file:match("%.c$") then
+    compiler = M.config.clang
+    lang_args = M.config.c_args
+  elseif file:match("%.swift$") then
+    compiler = M.config.swiftc
+    lang_args = M.config.swift_args
+    postprocess = "| xcrun swift-demangle"
+  elseif file:match("%.ll$") then
+    compiler = M.config.opt
+    lang_args = M.config.ll_args
+  else
+    -- Default to C
+    compiler = M.config.clang
+    lang_args = M.config.c_args
+  end
+
+  -- Combine ALL arguments for output type detection
+  local all_args = table.concat({args_str, buffer_args, lang_args}, " ")
   local output_type = detect_output_type(all_args, file)
 
-  -- Create new window
+  -- Build command arguments
+  local cmd_args = {}
+  table.insert(cmd_args, string.format('"%s"', file))
+  if args_str ~= "" then table.insert(cmd_args, args_str) end
+  table.insert(cmd_args, "-S")
+  table.insert(cmd_args, "-g")
+
+  -- Add compiler-specific flags
+  if not file:match("%.ll$") and not file:match("%.swift$") then
+    table.insert(cmd_args, "-fno-asynchronous-unwind-tables")
+    table.insert(cmd_args, "-fno-discard-value-names")
+  end
+
+  if file:match("%.swift$") then
+    table.insert(cmd_args, "-Xllvm --x86-asm-syntax=intel")
+  elseif not file:match("%.ll$") then
+    table.insert(cmd_args, "-masm=intel")
+  end
+
+  if lang_args ~= "" then table.insert(cmd_args, lang_args) end
+  if buffer_args ~= "" then table.insert(cmd_args, buffer_args) end
+  table.insert(cmd_args, "-o -")
+
+  local cmd = ".!" .. compiler .. " " .. table.concat(cmd_args, " ")
+  if postprocess then
+    cmd = cmd .. " " .. postprocess
+  end
+
+  -- Create new window and set up buffer
   if M.config.window_cmd then
     vim.cmd(M.config.window_cmd)
   else
     vim.cmd("vertical botright new")
   end
 
-  -- Set filetype and buffer options IMMEDIATELY after creating window
-  -- This prevents Neovim's auto-detection from overriding our choice
   set_output_filetype(output_type)
   vim.bo.buftype = "nofile"
   vim.bo.bufhidden = "hide"
   vim.bo.swapfile = false
   vim.wo.number = false
 
-  local file_and_args = '"' .. file .. '" ' .. args
-  local cmd
-
-  -- Build command based on file extension
-  if file:match("%.cpp$") then
-    cmd = ".!" .. M.config.clang .. "++ " ..
-        file_and_args .. " " ..
-        emission .. " " ..
-        " -fno-asynchronous-unwind-tables " ..
-        " -fno-discard-value-names " ..
-        " -masm=intel " ..
-        M.config.cpp_args .. " " ..
-        buffer_args .. " " ..
-        " -o - "
-  elseif file:match("%.swift$") then
-    cmd = ".!" .. M.config.swiftc .. " " ..
-        file_and_args .. " " ..
-        emission .. " " ..
-        " -Xllvm --x86-asm-syntax=intel " ..
-        M.config.swift_args .. " " ..
-        buffer_args .. " " ..
-        " -o - | xcrun swift-demangle"
-  elseif file:match("%.c$") then
-    cmd = ".!" .. M.config.clang .. " " ..
-        file_and_args .. " " ..
-        emission .. " " ..
-        " -fno-asynchronous-unwind-tables " ..
-        " -masm=intel " ..
-        M.config.c_args ..
-        buffer_args .. " " ..
-        " -o - "
-  elseif file:match("%.ll$") then
-    cmd = ".!" .. M.config.opt .. " " ..
-        file_and_args .. " " ..
-        emission .. " " ..
-        M.config.ll_args .. " " ..
-        buffer_args .. " " ..
-        " -o - "
-  else
-    -- Default to C
-    cmd = ".!" .. M.config.clang .. " " ..
-        file_and_args .. " " ..
-        emission .. " " ..
-        " -fno-asynchronous-unwind-tables " ..
-        " -masm=intel " ..
-        M.config.c_args ..
-        buffer_args .. " " ..
-        " -o - "
-  end
-
-  -- Store last command for debugging
+  -- Store and execute command
   vim.g.last_godbolt_cmd = cmd
 
   -- Remove the ".!" prefix for system execution
@@ -170,6 +173,20 @@ function M.godbolt(...)
   -- Insert stdout into buffer
   local output_lines = vim.split(output, "\n")
   vim.api.nvim_buf_set_lines(0, 0, -1, false, output_lines)
+
+  -- Get output buffer number (current buffer after creating new window)
+  local output_bufnr = vim.fn.bufnr("%")
+
+  -- Setup line mapping
+  if M.config.line_mapping and M.config.line_mapping.enabled then
+    local ok, line_map = pcall(require, 'godbolt.line_map')
+    if ok then
+      -- Schedule to run after buffer is fully initialized
+      vim.schedule(function()
+        line_map.setup(source_bufnr, output_bufnr, output_type, M.config.line_mapping)
+      end)
+    end
+  end
 
   -- Trigger autocommand event
   vim.cmd("doautocmd User VimGodbolt")

@@ -29,6 +29,13 @@ require('godbolt').setup({
 
   -- Customize window command (optional)
   -- window_cmd = 'split' -- instead of default 'vertical botright new'
+
+  -- Line mapping configuration (Godbolt-style source-to-assembly mapping)
+  line_mapping = {
+    enabled = true,         -- Enable automatic line mapping
+    auto_scroll = false,    -- Don't auto-scroll windows (just highlight)
+    throttle_ms = 150,      -- Throttle cursor updates (ms)
+  },
 })
 ```
 
@@ -99,6 +106,51 @@ clang: warning: argument unused during compilation: '-masm=intel' [-Wunused-comm
 ```
 
 While the output buffer will only contain the clean assembly output. This keeps your compilation output clean and readable while still preserving important diagnostic information.
+
+### Line Mapping (Godbolt-style)
+
+The plugin automatically maps source lines to compiled output lines (and vice versa), similar to godbolt.com's Compiler Explorer.
+
+**How it works:**
+- Move your cursor in the source file → corresponding assembly/IR lines are highlighted
+- Move your cursor in the assembly → corresponding source line is highlighted
+- Uses compiler debug information (`.loc` directives) for accurate mapping
+
+**Features:**
+- **Bidirectional mapping**: Source ↔ Assembly synchronization
+- **Automatic**: Enabled by default, no manual setup needed
+- **Performance optimized**: Throttled updates to prevent lag
+- **Works at all optimization levels**: -O0, -O2, -O3, etc.
+
+**Requirements:**
+- Automatically adds `-g` flag to enable debug information
+- **LLVM IR support**: Fully implemented (parses `!dbg` metadata)
+- **Assembly support**: Work in progress
+
+**To use LLVM IR (recommended):**
+```vim
+:VGodbolt -emit-llvm
+```
+
+**Configuration:**
+```lua
+require('godbolt').setup({
+  line_mapping = {
+    enabled = true,         -- Enable/disable line mapping
+    auto_scroll = false,    -- Auto-scroll windows (can be distracting)
+    throttle_ms = 150,      -- Delay between updates (performance)
+  },
+})
+```
+
+**Example:**
+1. Open a C++ file
+2. Run `:VGodbolt`
+3. Move your cursor to line 5 in source
+4. Lines 42-48 in assembly are automatically highlighted
+5. Click on line 45 in assembly → line 5 in source is highlighted
+
+**Note:** Line mapping works best with `-O0` (no optimization) for 1:1 correspondence. At higher optimization levels, one source line may map to multiple assembly blocks due to inlining, unrolling, etc.
 
 ## Supported File Types
 
