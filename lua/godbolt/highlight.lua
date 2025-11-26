@@ -1,79 +1,133 @@
 local M = {}
 
--- Namespace for highlights
-M.ns_id = vim.api.nvim_create_namespace('godbolt_line_map')
+-- Two separate namespaces for different highlighting purposes
+M.ns_static = vim.api.nvim_create_namespace('godbolt_static')
+M.ns_cursor = vim.api.nvim_create_namespace('godbolt_cursor')
 
--- Setup highlight groups with shaded grays
+-- Setup highlight groups with hex color backgrounds
 function M.setup()
-  -- Define multiple shades for better visualization
-  vim.cmd([[
-    highlight GodboltLevel1 guibg=#3a3a3a ctermbg=237
-    highlight GodboltLevel2 guibg=#2f2f2f ctermbg=236
-    highlight GodboltLevel3 guibg=#262626 ctermbg=235
-    highlight GodboltLevel4 guibg=#1f1f1f ctermbg=234
-    highlight GodboltLevel5 guibg=#1a1a1a ctermbg=233
+  -- Detect background to use appropriate colors
+  local bg = vim.o.background
 
-    " Fallback for single-line highlighting
-    highlight default link GodboltSourceHighlight CursorLine
-    highlight default link GodboltOutputHighlight GodboltLevel1
-  ]])
+  if bg == "dark" then
+    -- Lighter grays for dark backgrounds (more visible)
+    -- These are full-line background colors
+    vim.api.nvim_set_hl(0, "GodboltLevel1", {bg = "#404040"})
+    vim.api.nvim_set_hl(0, "GodboltLevel2", {bg = "#383838"})
+    vim.api.nvim_set_hl(0, "GodboltLevel3", {bg = "#303030"})
+    vim.api.nvim_set_hl(0, "GodboltLevel4", {bg = "#282828"})
+    vim.api.nvim_set_hl(0, "GodboltLevel5", {bg = "#242424"})
+  else
+    -- Darker grays for light backgrounds
+    vim.api.nvim_set_hl(0, "GodboltLevel1", {bg = "#d0d0d0"})
+    vim.api.nvim_set_hl(0, "GodboltLevel2", {bg = "#d8d8d8"})
+    vim.api.nvim_set_hl(0, "GodboltLevel3", {bg = "#e0e0e0"})
+    vim.api.nvim_set_hl(0, "GodboltLevel4", {bg = "#e8e8e8"})
+    vim.api.nvim_set_hl(0, "GodboltLevel5", {bg = "#f0f0f0"})
+  end
+
+  -- Cursor highlight - link to Visual for visibility
+  vim.api.nvim_set_hl(0, "GodboltCursor", {link = "Visual"})
 end
 
 -- Get shade name based on index (cycles through levels)
-local function get_shade_for_index(index, total)
-  if total == 1 then
-    return "GodboltLevel1"
-  end
-
-  -- Distribute shades across all lines
-  local level = math.min(5, math.ceil((index / total) * 5))
+local function get_shade_for_index(index)
+  local level = ((index - 1) % 5) + 1
   return "GodboltLevel" .. level
 end
 
--- Highlight multiple lines in a buffer with shaded grays
+-- Apply static multi-colored highlights to mapped lines
+-- This is called ONCE when the mapping is set up
 -- @param bufnr: buffer number
 -- @param lines: table of line numbers (1-indexed)
--- @param hl_group: highlight group name (optional, will use shades if nil)
-function M.highlight_lines(bufnr, lines, hl_group)
+function M.highlight_lines_static(bufnr, lines)
   if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
     return
   end
 
   for i, line_num in ipairs(lines) do
     if line_num > 0 then
-      -- Use shaded highlighting if no specific hl_group provided
-      local shade = hl_group or get_shade_for_index(i, #lines)
+      local shade = get_shade_for_index(line_num)
 
-      -- Use extmarks for highlighting (0-indexed line numbers)
-      pcall(vim.api.nvim_buf_set_extmark, bufnr, M.ns_id, line_num - 1, 0, {
-        end_line = line_num,
-        hl_group = shade,
-        priority = 100,
-      })
+      -- Use nvim_buf_add_highlight for full-line background
+      -- Parameters: buffer, namespace, group, line (0-indexed), col_start, col_end
+      -- col_end = -1 means highlight to end of line
+      pcall(vim.api.nvim_buf_add_highlight,
+        bufnr,
+        M.ns_static,
+        shade,
+        line_num - 1,  -- Convert to 0-indexed
+        0,             -- Start of line
+        -1             -- End of line
+      )
     end
   end
 end
 
--- Clear all highlights in a buffer
+-- Apply cursor-following highlights
+-- This is called on EVERY cursor movement
 -- @param bufnr: buffer number
-function M.clear_highlights(bufnr)
+-- @param lines: table of line numbers (1-indexed)
+function M.highlight_lines_cursor(bufnr, lines)
   if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
     return
   end
 
-  vim.api.nvim_buf_clear_namespace(bufnr, M.ns_id, 0, -1)
+  for _, line_num in ipairs(lines) do
+    if line_num > 0 then
+      -- Use Visual-style highlighting for cursor
+      pcall(vim.api.nvim_buf_add_highlight,
+        bufnr,
+        M.ns_cursor,
+        "GodboltCursor",
+        line_num - 1,  -- Convert to 0-indexed
+        0,             -- Start of line
+        -1             -- End of line
+      )
+    end
+  end
 end
 
--- Clear highlights in a specific range
+-- Get list of already highlighted lines in a buffer/namespace
+-- Used to avoid duplicate highlighting
 -- @param bufnr: buffer number
--- @param start_line: start line (0-indexed)
--- @param end_line: end line (0-indexed)
-function M.clear_highlights_range(bufnr, start_line, end_line)
+-- @param namespace: namespace ID
+-- @return: table of line numbers (0-indexed)
+function M.get_highlighted_lines(bufnr, namespace)
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+    return {}
+  end
+
+  local extmarks = vim.api.nvim_buf_get_extmarks(bufnr, namespace, 0, -1, {
+    type = "highlight",
+    details = false,
+  })
+
+  local lines = {}
+  for _, mark in ipairs(extmarks) do
+    local line = mark[2]  -- Second element is line number
+    table.insert(lines, line)
+  end
+
+  return lines
+end
+
+-- Clear all highlights in a buffer for a specific namespace
+-- @param bufnr: buffer number
+-- @param namespace: namespace ID to clear
+function M.clear_namespace(bufnr, namespace)
   if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
     return
   end
 
-  vim.api.nvim_buf_clear_namespace(bufnr, M.ns_id, start_line, end_line)
+  vim.api.nvim_buf_clear_namespace(bufnr, namespace, 0, -1)
+end
+
+-- Clear all highlights in a buffer (both namespaces)
+-- @param bufnr: buffer number
+function M.clear_all_highlights(bufnr)
+  M.clear_namespace(bufnr, M.ns_static)
+  M.clear_namespace(bufnr, M.ns_cursor)
 end
 
 return M

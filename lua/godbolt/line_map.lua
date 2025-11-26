@@ -12,7 +12,6 @@ local state = {
   out_to_src = nil,
   output_type = nil,
   autocmd_ids = {},
-  last_update_timer = nil,
 }
 
 -- Throttle function to prevent excessive updates
@@ -32,7 +31,43 @@ local function throttle(fn, delay_ms)
   end
 end
 
--- Update highlights when cursor moves in source buffer
+-- Apply static multi-colored highlights to all mapped lines
+-- This is called ONCE when the mapping is set up
+local function apply_static_highlights()
+  if not state.source_bufnr or not state.output_bufnr then
+    return
+  end
+
+  if not vim.api.nvim_buf_is_valid(state.source_bufnr) or
+     not vim.api.nvim_buf_is_valid(state.output_bufnr) then
+    return
+  end
+
+  -- Get already highlighted source lines to avoid duplicates
+  local highlighted_source_lines = highlight.get_highlighted_lines(state.source_bufnr, highlight.ns_static)
+
+  -- Iterate through all source → output mappings
+  for src_line, out_lines in pairs(state.src_to_out) do
+    -- Highlight source line if not already highlighted
+    local is_highlighted = false
+    for _, hl_line in ipairs(highlighted_source_lines) do
+      if hl_line == (src_line - 1) then  -- Compare with 0-indexed line
+        is_highlighted = true
+        break
+      end
+    end
+
+    if not is_highlighted then
+      highlight.highlight_lines_static(state.source_bufnr, {src_line})
+      table.insert(highlighted_source_lines, src_line - 1)
+    end
+
+    -- Highlight all corresponding output lines
+    highlight.highlight_lines_static(state.output_bufnr, out_lines)
+  end
+end
+
+-- Update cursor highlights when cursor moves in source buffer
 local function update_source_highlights(config)
   if not state.source_bufnr or not state.output_bufnr then
     return
@@ -46,15 +81,19 @@ local function update_source_highlights(config)
   -- Get current cursor line
   local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
 
-  -- Clear previous highlights in output buffer
-  highlight.clear_highlights(state.output_bufnr)
+  -- Clear previous cursor highlights in BOTH buffers
+  highlight.clear_namespace(state.source_bufnr, highlight.ns_cursor)
+  highlight.clear_namespace(state.output_bufnr, highlight.ns_cursor)
 
   -- Get mapped output lines
   local mapped_lines = state.src_to_out and state.src_to_out[cursor_line] or {}
 
   if #mapped_lines > 0 then
-    -- Highlight mapped lines in output buffer (nil = use automatic shading)
-    highlight.highlight_lines(state.output_bufnr, mapped_lines, nil)
+    -- Highlight current source line with cursor style
+    highlight.highlight_lines_cursor(state.source_bufnr, {cursor_line})
+
+    -- Highlight mapped lines in output buffer with cursor style
+    highlight.highlight_lines_cursor(state.output_bufnr, mapped_lines)
 
     -- Optional: Auto-scroll to first mapped line
     if config.auto_scroll then
@@ -73,7 +112,7 @@ local function update_source_highlights(config)
   end
 end
 
--- Update highlights when cursor moves in output buffer (reverse mapping)
+-- Update cursor highlights when cursor moves in output buffer (reverse mapping)
 local function update_output_highlights(config)
   if not state.source_bufnr or not state.output_bufnr then
     return
@@ -87,15 +126,19 @@ local function update_output_highlights(config)
   -- Get current cursor line
   local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
 
-  -- Clear previous highlights in source buffer
-  highlight.clear_highlights(state.source_bufnr)
+  -- Clear previous cursor highlights in BOTH buffers
+  highlight.clear_namespace(state.source_bufnr, highlight.ns_cursor)
+  highlight.clear_namespace(state.output_bufnr, highlight.ns_cursor)
 
   -- Get mapped source line
   local mapped_src_line = state.out_to_src and state.out_to_src[cursor_line]
 
   if mapped_src_line then
-    -- Highlight mapped line in source buffer
-    highlight.highlight_lines(state.source_bufnr, {mapped_src_line}, "GodboltSourceHighlight")
+    -- Highlight current output line with cursor style
+    highlight.highlight_lines_cursor(state.output_bufnr, {cursor_line})
+
+    -- Highlight mapped source line with cursor style
+    highlight.highlight_lines_cursor(state.source_bufnr, {mapped_src_line})
 
     -- Optional: Auto-scroll to mapped source line
     if config.auto_scroll then
@@ -115,12 +158,12 @@ end
 
 -- Clean up autocmds and state
 function M.cleanup()
-  -- Clear highlights
+  -- Clear all highlights
   if state.source_bufnr and vim.api.nvim_buf_is_valid(state.source_bufnr) then
-    highlight.clear_highlights(state.source_bufnr)
+    highlight.clear_all_highlights(state.source_bufnr)
   end
   if state.output_bufnr and vim.api.nvim_buf_is_valid(state.output_bufnr) then
-    highlight.clear_highlights(state.output_bufnr)
+    highlight.clear_all_highlights(state.output_bufnr)
   end
 
   -- Remove autocmds
@@ -136,7 +179,6 @@ function M.cleanup()
     out_to_src = nil,
     output_type = nil,
     autocmd_ids = {},
-    last_update_timer = nil,
   }
 end
 
@@ -190,7 +232,10 @@ function M.setup(source_bufnr, output_bufnr, output_type, config)
     return
   end
 
-  -- Create throttled update functions
+  -- Apply static multi-colored highlights to all mapped lines (ONCE)
+  apply_static_highlights()
+
+  -- Create throttled update functions for cursor movement
   local throttled_source_update = throttle(function()
     update_source_highlights(config)
   end, config.throttle_ms)
@@ -229,7 +274,19 @@ function M.setup(source_bufnr, output_bufnr, output_type, config)
   })
   table.insert(state.autocmd_ids, cleanup_autocmd)
 
-  -- Initial highlight based on current cursor position
+  -- Refresh highlights when colorscheme changes
+  local colorscheme_autocmd = vim.api.nvim_create_autocmd('ColorScheme', {
+    callback = function()
+      highlight.setup()
+      -- Reapply all highlights
+      apply_static_highlights()
+      update_source_highlights(config)
+    end,
+    desc = 'Godbolt line mapping: refresh highlights on colorscheme change'
+  })
+  table.insert(state.autocmd_ids, colorscheme_autocmd)
+
+  -- Initial cursor highlight based on current cursor position
   update_source_highlights(config)
 end
 
