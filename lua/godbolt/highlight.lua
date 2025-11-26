@@ -36,11 +36,8 @@ end
 -- @param hl_group: highlight group name (optional, will use shades if nil)
 function M.highlight_lines(bufnr, lines, hl_group)
   if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
-    print(string.format("[Highlight] Invalid buffer: %s", tostring(bufnr)))
     return
   end
-
-  print(string.format("[Highlight] Highlighting %d lines in buf %d", #lines, bufnr))
 
   for i, line_num in ipairs(lines) do
     if line_num > 0 then
@@ -48,18 +45,11 @@ function M.highlight_lines(bufnr, lines, hl_group)
       local shade = hl_group or get_shade_for_index(i, #lines)
 
       -- Use extmarks for highlighting (0-indexed line numbers)
-      local ok, err = pcall(vim.api.nvim_buf_set_extmark, bufnr, M.ns_id, line_num - 1, 0, {
+      pcall(vim.api.nvim_buf_set_extmark, bufnr, M.ns_id, line_num - 1, 0, {
         end_line = line_num,
         hl_group = shade,
         priority = 100,
       })
-
-      if not ok then
-        print(string.format("[Highlight] Failed to set extmark at line %d: %s", line_num, err))
-        break
-      else
-        print(string.format("[Highlight] Set extmark at line %d with %s", line_num, shade))
-      end
     end
   end
 end

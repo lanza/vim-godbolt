@@ -34,32 +34,25 @@ end
 
 -- Update highlights when cursor moves in source buffer
 local function update_source_highlights(config)
-  print("[Line Mapping] update_source_highlights called")
-
   if not state.source_bufnr or not state.output_bufnr then
-    print("[Line Mapping] Missing buffers: source=" .. tostring(state.source_bufnr) .. " output=" .. tostring(state.output_bufnr))
     return
   end
 
   if not vim.api.nvim_buf_is_valid(state.source_bufnr) or
      not vim.api.nvim_buf_is_valid(state.output_bufnr) then
-    print("[Line Mapping] Buffers not valid")
     return
   end
 
   -- Get current cursor line
   local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
-  print(string.format("[Line Mapping] Source cursor on line %d", cursor_line))
 
   -- Clear previous highlights in output buffer
   highlight.clear_highlights(state.output_bufnr)
 
   -- Get mapped output lines
   local mapped_lines = state.src_to_out and state.src_to_out[cursor_line] or {}
-  print(string.format("[Line Mapping] Found %d mapped output lines", #mapped_lines))
 
   if #mapped_lines > 0 then
-    print(string.format("[Line Mapping] Highlighting output lines: %s", table.concat(mapped_lines, ", ")))
     -- Highlight mapped lines in output buffer (nil = use automatic shading)
     highlight.highlight_lines(state.output_bufnr, mapped_lines, nil)
 
@@ -181,25 +174,19 @@ function M.setup(source_bufnr, output_bufnr, output_type, config)
   -- Get output buffer lines
   local output_lines = vim.api.nvim_buf_get_lines(output_bufnr, 0, -1, false)
 
-  -- Debug: print output type
-  print(string.format("[Line Mapping] Output type: %s, lines: %d", output_type, #output_lines))
-
   -- Parse based on output type
   if output_type == "asm" then
     state.src_to_out, state.out_to_src = assembly_parser.parse(output_lines)
-    print(string.format("[Line Mapping] Assembly: %d source lines mapped", vim.tbl_count(state.src_to_out)))
   elseif output_type == "llvm" then
     state.src_to_out, state.out_to_src = llvm_ir_parser.parse(output_lines)
-    print(string.format("[Line Mapping] LLVM IR: %d source lines mapped", vim.tbl_count(state.src_to_out)))
   else
     -- Unknown output type, skip mapping
-    print(string.format("[Line Mapping] Unknown output type: %s", output_type))
     return
   end
 
   -- Check if we found any mappings
   if not state.src_to_out or vim.tbl_count(state.src_to_out) == 0 then
-    print("[Line Mapping] No debug info found. Make sure -g flag is enabled.")
+    print("[Line Mapping] No debug info found. Compile with -g for line mapping.")
     return
   end
 
@@ -244,9 +231,6 @@ function M.setup(source_bufnr, output_bufnr, output_type, config)
 
   -- Initial highlight based on current cursor position
   update_source_highlights(config)
-
-  -- Print success message
-  print(string.format("[Line Mapping] ✓ Enabled: %d source lines mapped", vim.tbl_count(state.src_to_out)))
 end
 
 return M
