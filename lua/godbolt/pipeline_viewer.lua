@@ -103,7 +103,6 @@ function M.create_layout()
   local pass_list_width = math.floor(total_width * 0.12)
   pass_list_width = math.max(20, math.min(40, pass_list_width))
 
-  vim.cmd(string.format('vertical resize %d', pass_list_width))
   vim.api.nvim_win_set_option(M.state.pass_list_winid, 'winfixwidth', true)
   vim.api.nvim_win_set_option(M.state.pass_list_winid, 'number', false)
   vim.api.nvim_win_set_option(M.state.pass_list_winid, 'relativenumber', false)
@@ -126,6 +125,8 @@ function M.create_layout()
 
   -- Go back to pass list window
   vim.api.nvim_set_current_win(M.state.pass_list_winid)
+
+  vim.cmd(string.format('vertical resize %d', 38))
 end
 
 -- Populate pass list buffer with tree-style formatting
@@ -140,12 +141,7 @@ function M.populate_pass_list()
     local marker = (i == M.state.current_index) and ">" or " "
     local name = pass.name
 
-    -- Truncate long pass names
-    if #name > 25 then
-      name = string.sub(name, 1, 22) .. "..."
-    end
-
-    local line = string.format("%s %2d. %s", marker, i, name)
+    local line = string.format("%s%2d. %s", marker, i, name)
     table.insert(lines, line)
 
     -- Show stats as sub-item if configured
@@ -242,10 +238,10 @@ function M.update_pass_list_cursor(index)
     end
 
     -- Add new marker (line number = header(3) + pass index)
-    local pass_line_num = 3 + (index - 1)
+    local pass_line_num = 3 + index
     if M.state.config.show_stats and index > 1 then
       -- Account for stats lines (each pass after first has an extra line)
-      pass_line_num = pass_line_num + (index - 1)
+      pass_line_num = pass_line_num + (index - 2)
     end
 
     if i == pass_line_num then
@@ -257,12 +253,12 @@ function M.update_pass_list_cursor(index)
   vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', false)
 
   -- Move cursor to the marked line in pass list
-  local cursor_line = 3 + (index - 1)
+  local cursor_line = 3 + index
   if M.state.config.show_stats and index > 1 then
-    cursor_line = cursor_line + (index - 1)
+    cursor_line = cursor_line + (index - 2)
   end
 
-  vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {cursor_line + 1, 0})
+  vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {cursor_line, 0})
 end
 
 -- Show statistics for current pass
