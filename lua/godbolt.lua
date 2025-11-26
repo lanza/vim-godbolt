@@ -20,6 +20,14 @@ M.config = {
     auto_scroll = false,
     throttle_ms = 150,
   },
+
+  -- Pipeline configuration
+  pipeline = {
+    enabled = true,
+    show_stats = true,
+    start_at_final = true,
+    filter_unchanged = false,
+  },
 }
 
 -- Setup function to override defaults
@@ -191,6 +199,116 @@ function M.godbolt(args_str)
   -- Trigger autocommand event
   vim.cmd("doautocmd User VimGodbolt")
 
+end
+
+-- Run LLVM optimization pipeline and show passes
+function M.godbolt_pipeline(args_str)
+  args_str = args_str or ""
+  local file = vim.fn.expand("%")
+  local source_bufnr = vim.fn.bufnr("%")
+
+  -- Only works with .ll files
+  if not file:match("%.ll$") then
+    print("[Pipeline] Only works with LLVM IR (.ll) files")
+    return
+  end
+
+  -- Parse first-line godbolt comments for pipeline config
+  local first_line = vim.fn.getbufline(source_bufnr, 1, 1)[1] or ""
+  local pipeline_str = nil
+  local o_level = nil
+
+  -- Check for pipeline comment: ; godbolt-pipeline: mem2reg,instcombine
+  if first_line:match("^;[%s]*godbolt%-pipeline:") then
+    pipeline_str = first_line:gsub("^;[%s]*godbolt%-pipeline:[%s]*", "")
+  end
+
+  -- Check for O-level comment: ; godbolt-level: O2
+  if first_line:match("^;[%s]*godbolt%-level:") then
+    o_level = first_line:gsub("^;[%s]*godbolt%-level:[%s]*", "")
+  end
+
+  -- Priority: command line > buffer comment pipeline > buffer comment O-level > default O2
+  local pipeline = require('godbolt.pipeline')
+  local passes_to_run = nil
+
+  if args_str ~= "" then
+    -- Normalize O-level format: accept O2, 02, -O2, etc.
+    local o_match = args_str:match("^%-?O?(%d)$")
+    if o_match then
+      -- It's an O-level: O2, 2, -O2, etc.
+      passes_to_run = pipeline.get_o_level_pipeline("O" .. o_match)
+    else
+      -- Custom pass list
+      passes_to_run = args_str
+    end
+  elseif pipeline_str then
+    passes_to_run = pipeline_str
+  elseif o_level then
+    -- Normalize O-level from comment
+    local o_match = o_level:match("^%-?O?(%d)$")
+    if o_match then
+      passes_to_run = pipeline.get_o_level_pipeline("O" .. o_match)
+    else
+      passes_to_run = o_level
+    end
+  else
+    -- Default to O2
+    passes_to_run = pipeline.get_o_level_pipeline("O2")
+  end
+
+  print(string.format("[Pipeline] Running: opt -passes=\"%s\"", passes_to_run))
+
+  -- Run the pipeline
+  local passes = pipeline.run_pipeline(file, passes_to_run)
+
+  if not passes then
+    print("[Pipeline] Failed to run pipeline (see error above)")
+    return
+  end
+
+  if #passes == 0 then
+    print("[Pipeline] No passes captured.")
+    print("[Pipeline] This might mean:")
+    print("  1. The pass didn't produce any output")
+    print("  2. Your LLVM version doesn't support --print-after-all")
+    print("  3. The pass name is incorrect")
+    print("  Try: opt -passes=\"" .. passes_to_run .. "\" --help-list-passes | grep -i " .. passes_to_run)
+    return
+  end
+
+  print(string.format("[Pipeline] Captured %d pass stages", #passes))
+
+  -- Create new window for output
+  if M.config.window_cmd then
+    vim.cmd(M.config.window_cmd)
+  else
+    vim.cmd("vertical botright new")
+  end
+
+  -- Set up buffer
+  vim.bo.buftype = "nofile"
+  vim.bo.bufhidden = "hide"
+  vim.bo.swapfile = false
+  vim.wo.number = false
+
+  local output_bufnr = vim.fn.bufnr("%")
+
+  -- Setup pipeline viewer
+  local ok, pipeline_viewer = pcall(require, 'godbolt.pipeline_viewer')
+  if ok then
+    -- Merge pipeline config with line_mapping config
+    local viewer_config = vim.tbl_deep_extend("force", M.config.pipeline, {
+      line_mapping = M.config.line_mapping
+    })
+
+    pipeline_viewer.setup(source_bufnr, output_bufnr, passes, viewer_config)
+  else
+    print("[Pipeline] Failed to load pipeline viewer")
+  end
+
+  -- Trigger autocommand event
+  vim.cmd("doautocmd User VimGodboltPipeline")
 end
 
 return M
