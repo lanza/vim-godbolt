@@ -129,3 +129,18 @@ vim.api.nvim_create_user_command('GodboltStripOptnone', function()
 end, {
   desc = 'Strip optnone attributes from current LLVM IR file'
 })
+
+-- Show last compilation command
+vim.api.nvim_create_user_command('GodboltShowCommand', function()
+  local cmd = vim.g.last_godbolt_cmd
+  if cmd then
+    -- Remove the ".!" prefix if present
+    cmd = cmd:gsub("^%.!", "")
+    print("[Godbolt] Last compilation command:")
+    print(cmd)
+  else
+    print("[Godbolt] No compilation command available. Run :Godbolt first.")
+  end
+end, {
+  desc = 'Show the last Godbolt compilation command'
+})

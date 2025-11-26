@@ -19,6 +19,8 @@ M.config = {
     enabled = true,
     auto_scroll = false,
     throttle_ms = 150,
+    silent_on_failure = false,      -- Show error messages if debug info missing
+    show_compilation_cmd = true,    -- Show compilation command when debug info fails
   },
 
   -- Pipeline configuration
@@ -71,6 +73,41 @@ local function set_output_filetype(output_type)
   end
 end
 
+-- Check if debug info exists in compilation output
+-- @param output_lines: array of output lines
+-- @param output_type: "asm" or "llvm"
+-- @return: boolean, string (has_debug_info, diagnostic_message)
+local function verify_debug_info(output_lines, output_type)
+  if output_type == "llvm" then
+    -- For LLVM IR, look for debug metadata
+    for _, line in ipairs(output_lines) do
+      if line:match("!DILocation") or line:match("!dbg") then
+        return true, nil
+      end
+    end
+    return false, "LLVM IR output contains no debug metadata (!DILocation or !dbg). This usually means debug info was stripped or not generated."
+  elseif output_type == "asm" then
+    -- For assembly, look for .loc or .file directives
+    for _, line in ipairs(output_lines) do
+      if line:match("^%s*%.loc%s") or line:match("^%s*%.file%s") then
+        return true, nil
+      end
+    end
+    return false, "Assembly output contains no debug directives (.loc or .file). Assembly line mapping is a work in progress."
+  end
+
+  return true, nil  -- For other types, assume OK
+end
+
+-- Check if args contain debug-disabling flags
+-- @param args: string of compiler arguments
+-- @return: boolean (true if debug-disabling flags found)
+local function has_debug_disabling_flags(args)
+  -- Check for flags that explicitly disable debug info
+  return args:match("%-g0%s") or args:match("%-g0$") or
+         args:match("%-ggdb0%s") or args:match("%-ggdb0$")
+end
+
 -- Main godbolt function
 function M.godbolt(args_str)
   args_str = args_str or ""
@@ -116,7 +153,6 @@ function M.godbolt(args_str)
   table.insert(cmd_args, string.format('"%s"', file))
   if args_str ~= "" then table.insert(cmd_args, args_str) end
   table.insert(cmd_args, "-S")
-  table.insert(cmd_args, "-g")
 
   -- Add compiler-specific flags
   if not file:match("%.ll$") and not file:match("%.swift$") then
@@ -132,6 +168,17 @@ function M.godbolt(args_str)
 
   if lang_args ~= "" then table.insert(cmd_args, lang_args) end
   if buffer_args ~= "" then table.insert(cmd_args, buffer_args) end
+
+  -- Check if user has explicitly disabled debug info
+  local all_user_args = table.concat({args_str, buffer_args, lang_args}, " ")
+  if has_debug_disabling_flags(all_user_args) then
+    print("[Godbolt] Warning: Debug-disabling flags detected (-g0). Line mapping may not work.")
+  end
+
+  -- Add -g LAST to ensure it's not overridden by user flags
+  -- This is critical for line mapping to work
+  table.insert(cmd_args, "-g")
+
   table.insert(cmd_args, "-o -")
 
   local cmd = ".!" .. compiler .. " " .. table.concat(cmd_args, " ")
@@ -185,14 +232,29 @@ function M.godbolt(args_str)
   -- Get output buffer number (current buffer after creating new window)
   local output_bufnr = vim.fn.bufnr("%")
 
-  -- Setup line mapping
+  -- Verify debug info and setup line mapping
   if M.config.line_mapping and M.config.line_mapping.enabled then
-    local ok, line_map = pcall(require, 'godbolt.line_map')
-    if ok then
-      -- Schedule to run after buffer is fully initialized
-      vim.schedule(function()
-        line_map.setup(source_bufnr, output_bufnr, output_type, M.config.line_mapping)
-      end)
+    -- First check if debug info exists in the output
+    local has_debug, debug_msg = verify_debug_info(output_lines, output_type)
+
+    if not has_debug then
+      -- Debug info verification failed
+      if not M.config.line_mapping.silent_on_failure then
+        print("[Line Mapping] " .. debug_msg)
+        if M.config.line_mapping.show_compilation_cmd then
+          print("[Line Mapping] Compilation command: " .. actual_cmd)
+        end
+        print("[Line Mapping] Troubleshooting: Run :GodboltDebug on for more details")
+      end
+    else
+      -- Debug info exists, attempt to setup line mapping
+      local ok, line_map = pcall(require, 'godbolt.line_map')
+      if ok then
+        -- Schedule to run after buffer is fully initialized
+        vim.schedule(function()
+          line_map.setup(source_bufnr, output_bufnr, output_type, M.config.line_mapping)
+        end)
+      end
     end
   end
 

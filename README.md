@@ -101,6 +101,8 @@ require('godbolt').setup({
     enabled = true,         -- Enable automatic line mapping
     auto_scroll = false,    -- Auto-scroll windows when cursor moves (can be distracting)
     throttle_ms = 150,      -- Throttle cursor updates (ms) for performance
+    silent_on_failure = false,  -- Show error messages if debug info is missing
+    show_compilation_cmd = true,  -- Show compilation command when debug info fails
   },
 
   -- Pipeline viewer configuration
@@ -185,6 +187,14 @@ Strip `optnone` attributes from the current LLVM IR file. Useful when you have I
 
 ```vim
 :GodboltStripOptnone   " Strips optnone and reloads the buffer
+```
+
+**`:GodboltShowCommand`**
+
+Show the last compilation command used by `:Godbolt`. Useful for debugging line mapping issues or understanding what flags were used.
+
+```vim
+:GodboltShowCommand    " Displays the last compilation command
 ```
 
 ## Usage Examples
