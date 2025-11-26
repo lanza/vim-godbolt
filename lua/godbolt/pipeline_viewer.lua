@@ -201,7 +201,7 @@ function M.show_diff(index)
 
   if index == 1 then
     -- First pass overall - need function from input
-    if func_name then
+    if func_name and M.state.input_file then
       local input_ir = pipeline.get_stripped_input(M.state.input_file)
       before_ir = ir_utils.extract_function(input_ir, func_name)
       before_name = "Input: " .. func_name
@@ -220,7 +220,7 @@ function M.show_diff(index)
       before_name = prev_pass.name
     else
       -- Different function, get from input
-      if func_name then
+      if func_name and M.state.input_file then
         local input_ir = pipeline.get_stripped_input(M.state.input_file)
         before_ir = ir_utils.extract_function(input_ir, func_name)
         before_name = "Input: " .. func_name
