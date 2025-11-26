@@ -20,6 +20,42 @@ function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
 end
 
+-- Detect output type from compiler arguments
+local function detect_output_type(all_args, file)
+  -- For LLVM IR files, output is always LLVM IR
+  if file:match("%.ll$") then
+    return "llvm"
+  end
+
+  -- Check for various emit flags
+  if all_args:match("-emit%-llvm") then
+    return "llvm"
+  elseif all_args:match("-emit%-cir") then
+    return "cir"  -- ClangIR
+  elseif all_args:match("-emit%-ast") then
+    return "ast"
+  elseif all_args:match("-emit%-obj") or all_args:match("-c%s") or all_args:match("-c$") then
+    return "objdump"  -- Binary object file
+  else
+    return "asm"  -- Default to assembly
+  end
+end
+
+-- Set filetype based on output type
+local function set_output_filetype(output_type)
+  if output_type == "llvm" then
+    vim.bo.filetype = "llvm"
+  elseif output_type == "cir" then
+    vim.bo.filetype = "mlir"  -- ClangIR uses MLIR syntax
+  elseif output_type == "ast" then
+    vim.bo.filetype = "text"
+  elseif output_type == "objdump" then
+    vim.bo.filetype = "asm"
+  else
+    vim.bo.filetype = "asm"
+  end
+end
+
 -- Main godbolt function
 function M.godbolt(...)
   local args = table.concat({ ... }, " ")
@@ -36,6 +72,10 @@ function M.godbolt(...)
     buffer_args = first_line:gsub("^;[%s]*godbolt:", "")
   end
 
+  -- Detect output type from all arguments
+  local all_args = args .. " " .. buffer_args
+  local output_type = detect_output_type(all_args, file)
+
   -- Create new window
   if M.config.window_cmd then
     vim.cmd(M.config.window_cmd)
@@ -43,14 +83,9 @@ function M.godbolt(...)
     vim.cmd("vertical botright new")
   end
 
-  -- Set filetype based on buffer args
-  if buffer_args:match("-emit%-llvm") then
-    vim.bo.filetype = "llvm"
-  else
-    vim.bo.filetype = "asm"
-  end
-
-  -- Set buffer options
+  -- Set filetype and buffer options IMMEDIATELY after creating window
+  -- This prevents Neovim's auto-detection from overriding our choice
+  set_output_filetype(output_type)
   vim.bo.buftype = "nofile"
   vim.bo.bufhidden = "hide"
   vim.bo.swapfile = false
@@ -94,7 +129,6 @@ function M.godbolt(...)
         M.config.ll_args .. " " ..
         buffer_args .. " " ..
         " -o - "
-    vim.bo.filetype = "llvm"
   else
     -- Default to C
     cmd = ".!" .. M.config.clang .. " " ..
@@ -109,13 +143,37 @@ function M.godbolt(...)
 
   -- Store last command for debugging
   vim.g.last_godbolt_cmd = cmd
-  print(cmd)
 
-  -- Execute command
-  vim.cmd(cmd)
+  -- Remove the ".!" prefix for system execution
+  local actual_cmd = cmd:gsub("^%.!", "")
+
+  -- Create temporary file for stderr
+  local stderr_file = vim.fn.tempname()
+  local cmd_with_redirect = actual_cmd .. " 2>" .. stderr_file
+
+  -- Execute command and capture stdout
+  local output = vim.fn.system(cmd_with_redirect)
+
+  -- Read stderr from temp file
+  local stderr_lines = vim.fn.filereadable(stderr_file) == 1 and vim.fn.readfile(stderr_file) or {}
+  vim.fn.delete(stderr_file)
+
+  -- Show stderr (warnings/errors) in message log
+  if #stderr_lines > 0 then
+    -- Print the command first for context
+    print(actual_cmd)
+    for _, line in ipairs(stderr_lines) do
+      print(line)
+    end
+  end
+
+  -- Insert stdout into buffer
+  local output_lines = vim.split(output, "\n")
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, output_lines)
 
   -- Trigger autocommand event
   vim.cmd("doautocmd User VimGodbolt")
+
 end
 
 return M
