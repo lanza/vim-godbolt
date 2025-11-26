@@ -125,11 +125,11 @@ function M.populate_pass_list()
   local lines = {}
   local header = string.format("Optimization Pipeline (%d passes)", #M.state.passes)
   table.insert(lines, header)
-  table.insert(lines, string.rep("─", #header))
+  table.insert(lines, string.rep("-", #header))
   table.insert(lines, "")
 
   for i, pass in ipairs(M.state.passes) do
-    local marker = (i == M.state.current_index) and "▶" or " "
+    local marker = (i == M.state.current_index) and ">" or " "
     local name = pass.name
 
     -- Truncate long pass names
@@ -147,7 +147,7 @@ function M.populate_pass_list()
 
       -- Only show if there were changes
       if delta.instructions ~= 0 or delta.basic_blocks ~= 0 then
-        local stats_line = string.format("     Δ: Insts %+d, BBs %+d",
+        local stats_line = string.format("     D: Insts %+d, BBs %+d",
           delta.instructions, delta.basic_blocks)
         table.insert(lines, stats_line)
       end
@@ -229,8 +229,8 @@ function M.update_pass_list_cursor(index)
 
   for i, line in ipairs(lines) do
     -- Remove old markers
-    if line:match("^▶") then
-      lines[i] = " " .. line:sub(3)
+    if line:match("^>") then
+      lines[i] = " " .. line:sub(2)
     end
 
     -- Add new marker (line number = header(3) + pass index)
@@ -241,7 +241,7 @@ function M.update_pass_list_cursor(index)
     end
 
     if i == pass_line_num then
-      lines[i] = "▶" .. line:sub(2)
+      lines[i] = ">" .. line:sub(2)
     end
   end
 

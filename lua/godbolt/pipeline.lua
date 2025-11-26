@@ -9,7 +9,7 @@ M.debug = false
 -- @return: array of {name, ir} tables, one per pass
 function M.run_pipeline(input_file, passes_str)
   local cmd = string.format(
-    'opt -passes="%s" --print-after-all -S "%s" 2>&1',
+    'opt -passes="%s" --print-after-all --print-module-scope -S "%s" 2>&1',
     passes_str,
     input_file
   )
