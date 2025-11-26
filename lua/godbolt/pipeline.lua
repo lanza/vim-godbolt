@@ -9,7 +9,7 @@ M.debug = false
 -- @return: array of {name, ir} tables, one per pass
 function M.run_pipeline(input_file, passes_str)
   local cmd = string.format(
-    'opt -passes="%s" --print-after-all --print-module-scope -S "%s" 2>&1',
+    'opt --strip-debug -passes="%s" --print-after-all --print-module-scope -S "%s" 2>&1',
     passes_str,
     input_file
   )
@@ -43,8 +43,8 @@ function M.run_pipeline(input_file, passes_str)
   -- Parse the pipeline output to get passes
   local passes = M.parse_pipeline_output(output)
 
-  -- Prepend the initial state from the input file
-  local initial_ir = M.read_input_file(input_file)
+  -- Get the initial state by stripping debug info from input file
+  local initial_ir = M.get_stripped_input(input_file)
   if initial_ir and #initial_ir > 0 then
     table.insert(passes, 1, {
       name = "Input",
@@ -203,7 +203,40 @@ function M.ir_equal(ir1, ir2)
   return true
 end
 
--- Read and parse the input LLVM IR file
+-- Get stripped input IR by running opt --strip-debug
+-- @param input_file: path to .ll file
+-- @return: array of IR lines with debug info removed
+function M.get_stripped_input(input_file)
+  local cmd = string.format('opt --strip-debug -S "%s" 2>&1', input_file)
+
+  if M.debug then
+    print("[Pipeline Debug] Getting stripped input with: " .. cmd)
+  end
+
+  local output = vim.fn.system(cmd)
+
+  -- Check for errors
+  if output:match("^opt:") or output:match("\nopt:") then
+    if M.debug then
+      print("[Pipeline Debug] Error stripping input, falling back to raw file")
+    end
+    return M.read_input_file(input_file)
+  end
+
+  -- Split into lines
+  local lines = {}
+  for line in output:gmatch("[^\r\n]+") do
+    table.insert(lines, line)
+  end
+
+  if M.debug then
+    print(string.format("[Pipeline Debug] Got %d lines of stripped input", #lines))
+  end
+
+  return lines
+end
+
+-- Read and parse the input LLVM IR file (raw, with debug info)
 -- @param input_file: path to .ll file
 -- @return: array of IR lines
 function M.read_input_file(input_file)
