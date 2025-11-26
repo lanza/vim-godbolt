@@ -1,9 +1,8 @@
-## Godbolt-like for vim
+## Godbolt-like for Neovim
 
-A simple vim plugin that binds \gb to open a split with the assembly of the
-current source file. If the first line of the file starts with `// godbolt: `
-the rest of the line will be appended to the list of arguments. You can see an
-example here:
+A simple Neovim plugin that compiles your code to assembly in a split window, similar to Godbolt Compiler Explorer. If the first line of the file starts with `// godbolt:` or `; godbolt:`, the rest of the line will be appended as compiler arguments.
+
+You can see an example here:
 
 ![](sample.png)
 
@@ -11,18 +10,54 @@ This also works for Swift:
 
 ![](swift.png)
 
-The following variables can be used to modify the behavior (the defaults are
-shown):
+## Configuration
 
+Configure the plugin in your `init.lua`:
+
+```lua
+require('godbolt').setup({
+  -- Define the compilers you want to use
+  clang = 'clang',
+  swiftc = 'swiftc',
+  opt = 'opt',
+
+  -- Define compiler arguments
+  cpp_args = '-std=c++20',
+  c_args = '-std=c17',
+  swift_args = '',
+  ll_args = '',
+
+  -- Customize window command (optional)
+  -- window_cmd = 'split' -- instead of default 'vertical botright new'
+})
 ```
-# define the compiler you want to use
-let g:godbolt_swiftc = 'swiftc'
-let g:godbolt_clang = 'clang'
 
-# define some extra args to include
-let g:godbolt_cpp_args = "-std=c++20"
-let g:godbolt_c_args = "-std=c17"
-let g:godbolt_swift_args = ""
+All fields are optional and will use sensible defaults if not specified.
+
+## Usage
+
+Run `:VGodbolt` to compile the current file to assembly in a new split window.
+
+You can pass additional compiler arguments:
+```vim
+:VGodbolt -O3
+:VGodbolt -O2 -march=native
+```
+
+You can also specify per-file arguments using a comment on the first line:
+```cpp
+// godbolt: -O2 -march=native
+int main() {
+  return 42;
+}
+```
+
+For assembly files (.s) or LLVM IR files (.ll), use `;` for comments:
+```llvm
+; godbolt: -O3
+define i32 @main() {
+  ret i32 42
+}
 ```
 
 Todo?:
