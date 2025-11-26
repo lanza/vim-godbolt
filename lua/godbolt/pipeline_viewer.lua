@@ -73,24 +73,28 @@ function M.create_layout()
   -- Create new tab for pipeline viewer
   vim.cmd('tabnew')
 
+  -- Create unique buffer names using timestamp
+  local timestamp = os.time()
+
   -- Create pass list buffer (left pane)
   M.state.pass_list_bufnr = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'buftype', 'nofile')
-  vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'bufhidden', 'hide')
+  vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'bufhidden', 'wipe')
   vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'swapfile', false)
-  vim.api.nvim_buf_set_name(M.state.pass_list_bufnr, 'Pipeline Passes')
+  pcall(vim.api.nvim_buf_set_name, M.state.pass_list_bufnr,
+    string.format('Pipeline Passes [%d]', timestamp))
 
   -- Create before buffer (center pane)
   M.state.before_bufnr = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_option(M.state.before_bufnr, 'buftype', 'nofile')
-  vim.api.nvim_buf_set_option(M.state.before_bufnr, 'bufhidden', 'hide')
+  vim.api.nvim_buf_set_option(M.state.before_bufnr, 'bufhidden', 'wipe')
   vim.api.nvim_buf_set_option(M.state.before_bufnr, 'swapfile', false)
   vim.api.nvim_buf_set_option(M.state.before_bufnr, 'filetype', 'llvm')
 
   -- Create after buffer (right pane)
   M.state.after_bufnr = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_option(M.state.after_bufnr, 'buftype', 'nofile')
-  vim.api.nvim_buf_set_option(M.state.after_bufnr, 'bufhidden', 'hide')
+  vim.api.nvim_buf_set_option(M.state.after_bufnr, 'bufhidden', 'wipe')
   vim.api.nvim_buf_set_option(M.state.after_bufnr, 'swapfile', false)
   vim.api.nvim_buf_set_option(M.state.after_bufnr, 'filetype', 'llvm')
 
