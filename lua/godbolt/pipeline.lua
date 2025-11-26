@@ -1,5 +1,7 @@
 local M = {}
 
+local ir_utils = require('godbolt.ir_utils')
+
 -- Debug flag - set to true to see detailed logging
 M.debug = false
 
@@ -43,15 +45,7 @@ function M.run_pipeline(input_file, passes_str)
   -- Parse the pipeline output to get passes
   local passes = M.parse_pipeline_output(output)
 
-  -- Get the initial state by stripping debug info from input file
-  local initial_ir = M.get_stripped_input(input_file)
-  if initial_ir and #initial_ir > 0 then
-    table.insert(passes, 1, {
-      name = "Input",
-      ir = initial_ir,
-    })
-  end
-
+  -- Don't prepend Input - let the viewer handle the initial state per-function
   return passes
 end
 
@@ -84,7 +78,7 @@ function M.parse_pipeline_output(output)
       if current_pass and #current_ir > 0 then
         table.insert(passes, {
           name = current_pass,
-          ir = current_ir,
+          ir = ir_utils.clean_ir(current_ir),
         })
         if M.debug then
           print(string.format("[Pipeline Debug] Saved pass '%s' with %d IR lines", current_pass, #current_ir))
@@ -108,7 +102,7 @@ function M.parse_pipeline_output(output)
         if current_pass and #current_ir > 0 then
           table.insert(passes, {
             name = current_pass,
-            ir = current_ir,
+            ir = ir_utils.clean_ir(current_ir),
           })
           if M.debug then
             print(string.format("[Pipeline Debug] Saved final pass '%s' with %d IR lines", current_pass, #current_ir))
@@ -126,7 +120,7 @@ function M.parse_pipeline_output(output)
   if current_pass and #current_ir > 0 and #passes == pass_boundary_count - 1 then
     table.insert(passes, {
       name = current_pass,
-      ir = current_ir,
+      ir = ir_utils.clean_ir(current_ir),
     })
     if M.debug then
       print(string.format("[Pipeline Debug] Saved final pass '%s' with %d IR lines", current_pass, #current_ir))

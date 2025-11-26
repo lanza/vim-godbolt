@@ -1,12 +1,15 @@
 local M = {}
 
 local stats = require('godbolt.stats')
+local ir_utils = require('godbolt.ir_utils')
+local pipeline = require('godbolt.pipeline')
 
 -- State for pipeline viewer
 M.state = {
   passes = {},
   current_index = 1,
   source_bufnr = nil,
+  input_file = nil,  -- Path to input .ll file
   pass_list_bufnr = nil,
   before_bufnr = nil,
   after_bufnr = nil,
@@ -19,9 +22,10 @@ M.state = {
 
 -- Setup pipeline viewer with 3-pane layout
 -- @param source_bufnr: source buffer number
+-- @param input_file: path to input .ll file
 -- @param passes: array of {name, ir} from pipeline.parse_pipeline_output
 -- @param config: configuration table
-function M.setup(source_bufnr, passes, config)
+function M.setup(source_bufnr, input_file, passes, config)
   config = config or {}
 
   -- Default config
@@ -47,6 +51,7 @@ function M.setup(source_bufnr, passes, config)
   -- Store state
   M.state.passes = passes
   M.state.source_bufnr = source_bufnr
+  M.state.input_file = input_file
   M.state.config = config
 
   -- Start at first pass
@@ -169,6 +174,13 @@ function M.populate_pass_list()
   vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', false)
 end
 
+-- Extract function name from pass name
+-- @param pass_name: e.g., "SROAPass on foo" or "InstCombinePass on bar"
+-- @return: function name (e.g., "foo" or "bar") or nil
+local function extract_function_name(pass_name)
+  return pass_name:match(" on (.+)$")
+end
+
 -- Show diff between pass N-1 and pass N
 -- @param index: pass index (1-based)
 function M.show_diff(index)
@@ -181,14 +193,42 @@ function M.show_diff(index)
   M.state.current_index = index
 
   local pass = M.state.passes[index]
+  local func_name = extract_function_name(pass.name)
 
-  -- Get before IR (previous pass, or empty if first)
+  -- Get before IR
   local before_ir = {}
+  local before_name = ""
+
   if index == 1 then
-    -- First pass - show empty or could show original IR
-    before_ir = {"", "[ Initial State - No Previous Pass ]", ""}
+    -- First pass overall - need function from input
+    if func_name then
+      local input_ir = pipeline.get_stripped_input(M.state.input_file)
+      before_ir = ir_utils.extract_function(input_ir, func_name)
+      before_name = "Input: " .. func_name
+    else
+      before_ir = {"", "[ No previous state ]", ""}
+      before_name = "Initial"
+    end
   else
-    before_ir = M.state.passes[index - 1].ir
+    -- Check if previous pass was on the same function
+    local prev_pass = M.state.passes[index - 1]
+    local prev_func_name = extract_function_name(prev_pass.name)
+
+    if prev_func_name == func_name then
+      -- Same function, use previous pass
+      before_ir = prev_pass.ir
+      before_name = prev_pass.name
+    else
+      -- Different function, get from input
+      if func_name then
+        local input_ir = pipeline.get_stripped_input(M.state.input_file)
+        before_ir = ir_utils.extract_function(input_ir, func_name)
+        before_name = "Input: " .. func_name
+      else
+        before_ir = {"", "[ No previous state ]", ""}
+        before_name = "Initial"
+      end
+    end
   end
 
   -- Get after IR (current pass)
@@ -204,7 +244,6 @@ function M.show_diff(index)
   vim.api.nvim_buf_set_option(M.state.after_bufnr, 'modifiable', false)
 
   -- Update buffer names
-  local before_name = index == 1 and "Initial" or M.state.passes[index - 1].name
   local after_name = pass.name
 
   pcall(vim.api.nvim_buf_set_name, M.state.before_bufnr,

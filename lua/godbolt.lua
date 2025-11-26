@@ -319,7 +319,7 @@ function M.godbolt_pipeline(args_str)
       line_mapping = M.config.line_mapping
     })
 
-    pipeline_viewer.setup(source_bufnr, passes, viewer_config)
+    pipeline_viewer.setup(source_bufnr, llvm_ir_file, passes, viewer_config)
   else
     print("[Pipeline] Failed to load pipeline viewer")
   end
