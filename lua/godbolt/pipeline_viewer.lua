@@ -98,8 +98,12 @@ function M.create_layout()
   M.state.pass_list_winid = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(M.state.pass_list_winid, M.state.pass_list_bufnr)
 
-  -- Resize pass list window to 30 columns and fix width
-  vim.cmd('vertical resize 30')
+  -- Calculate pass list width as 12% of total width (min 20, max 40 columns)
+  local total_width = vim.o.columns
+  local pass_list_width = math.floor(total_width * 0.12)
+  pass_list_width = math.max(20, math.min(40, pass_list_width))
+
+  vim.cmd(string.format('vertical resize %d', pass_list_width))
   vim.api.nvim_win_set_option(M.state.pass_list_winid, 'winfixwidth', true)
   vim.api.nvim_win_set_option(M.state.pass_list_winid, 'number', false)
   vim.api.nvim_win_set_option(M.state.pass_list_winid, 'relativenumber', false)
