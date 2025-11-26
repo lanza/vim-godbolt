@@ -273,10 +273,30 @@ function M.godbolt_pipeline(args_str)
   local file = vim.fn.expand("%")
   local source_bufnr = vim.fn.bufnr("%")
 
-  -- Only works with .ll files
-  if not file:match("%.ll$") then
-    print("[Pipeline] Only works with LLVM IR (.ll) files")
+  -- Support .ll, .c, and .cpp files
+  if not (file:match("%.ll$") or file:match("%.c$") or file:match("%.cpp$")) then
+    print("[Pipeline] Only works with LLVM IR (.ll) or C/C++ (.c, .cpp) files")
     return
+  end
+
+  -- For C/C++ files, check for LTO flags
+  if file:match("%.c$") or file:match("%.cpp$") then
+    -- Parse first-line comments
+    local first_line = vim.fn.getbufline(source_bufnr, 1, 1)[1] or ""
+    local buffer_args = ""
+    if first_line:match("^//[%s]*godbolt:") then
+      buffer_args = first_line:gsub("^//[%s]*godbolt:", "")
+    end
+
+    -- Check for LTO flags in both command line and buffer args
+    local all_args = args_str .. " " .. buffer_args
+    if all_args:match("-flto") or all_args:match("-flink%-time%-optimization") then
+      print("[Pipeline] ERROR: LTO flags detected (-flto, -flto=thin)")
+      print("[Pipeline] LTO defers optimization to link-time, so compilation passes are minimal")
+      print("[Pipeline] Remove LTO flags to see optimization passes")
+      print("[Pipeline] Use optimization levels instead: :GodboltPipeline O2")
+      return
+    end
   end
 
   -- Parse first-line godbolt comments for pipeline config
@@ -284,14 +304,23 @@ function M.godbolt_pipeline(args_str)
   local pipeline_str = nil
   local o_level = nil
 
-  -- Check for pipeline comment: ; godbolt-pipeline: mem2reg,instcombine
-  if first_line:match("^;[%s]*godbolt%-pipeline:") then
-    pipeline_str = first_line:gsub("^;[%s]*godbolt%-pipeline:[%s]*", "")
-  end
+  if file:match("%.ll$") then
+    -- LLVM IR files use ; comments
+    -- Check for pipeline comment: ; godbolt-pipeline: mem2reg,instcombine
+    if first_line:match("^;[%s]*godbolt%-pipeline:") then
+      pipeline_str = first_line:gsub("^;[%s]*godbolt%-pipeline:[%s]*", "")
+    end
 
-  -- Check for O-level comment: ; godbolt-level: O2
-  if first_line:match("^;[%s]*godbolt%-level:") then
-    o_level = first_line:gsub("^;[%s]*godbolt%-level:[%s]*", "")
+    -- Check for O-level comment: ; godbolt-level: O2
+    if first_line:match("^;[%s]*godbolt%-level:") then
+      o_level = first_line:gsub("^;[%s]*godbolt%-level:[%s]*", "")
+    end
+  elseif file:match("%.c$") or file:match("%.cpp$") then
+    -- C/C++ files use // comments
+    -- Only O-levels supported (not custom pipelines)
+    if first_line:match("^//[%s]*godbolt%-level:") then
+      o_level = first_line:gsub("^//[%s]*godbolt%-level:[%s]*", "")
+    end
   end
 
   -- Priority: command line > buffer comment pipeline > buffer comment O-level > default O2
@@ -303,27 +332,56 @@ function M.godbolt_pipeline(args_str)
     local o_match = args_str:match("^%-?O?(%d)$")
     if o_match then
       -- It's an O-level: O2, 2, -O2, etc.
-      passes_to_run = pipeline.get_o_level_pipeline("O" .. o_match)
+      -- For .ll files, convert to pipeline string
+      if file:match("%.ll$") then
+        passes_to_run = pipeline.get_o_level_pipeline("O" .. o_match)
+      else
+        -- For C/C++ files, keep as is (will be normalized in run_clang_pipeline)
+        passes_to_run = args_str
+      end
     else
-      -- Custom pass list
-      passes_to_run = args_str
+      -- Custom pass list (only for .ll files)
+      if file:match("%.ll$") then
+        passes_to_run = args_str
+      else
+        print("[Pipeline] C/C++ files only support O-levels (O0, O1, O2, O3)")
+        print("[Pipeline] For custom passes, compile to .ll first:")
+        print("  :Godbolt -emit-llvm -O0 -Xclang -disable-O0-optnone")
+        print("  Then in the .ll file: :GodboltPipeline mem2reg,instcombine")
+        return
+      end
     end
   elseif pipeline_str then
+    -- Custom pipeline only for .ll files
     passes_to_run = pipeline_str
   elseif o_level then
     -- Normalize O-level from comment
     local o_match = o_level:match("^%-?O?(%d)$")
     if o_match then
-      passes_to_run = pipeline.get_o_level_pipeline("O" .. o_match)
+      if file:match("%.ll$") then
+        passes_to_run = pipeline.get_o_level_pipeline("O" .. o_match)
+      else
+        passes_to_run = o_level
+      end
     else
       passes_to_run = o_level
     end
   else
     -- Default to O2
-    passes_to_run = pipeline.get_o_level_pipeline("O2")
+    if file:match("%.ll$") then
+      passes_to_run = pipeline.get_o_level_pipeline("O2")
+    else
+      passes_to_run = "O2"
+    end
   end
 
-  print(string.format("[Pipeline] Running: opt -passes=\"%s\"", passes_to_run))
+  -- Display appropriate message based on file type
+  if file:match("%.ll$") then
+    print(string.format("[Pipeline] Running: opt -passes=\"%s\"", passes_to_run))
+  else
+    local compiler = file:match("%.cpp$") and "clang++" or "clang"
+    print(string.format("[Pipeline] Running: %s %s -mllvm -print-after-all", compiler, passes_to_run))
+  end
 
   -- Run the pipeline
   local passes = pipeline.run_pipeline(file, passes_to_run)

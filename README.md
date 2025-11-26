@@ -8,7 +8,7 @@ A powerful Neovim plugin that brings Compiler Explorer (godbolt.org) functionali
 
 - **Multi-format output**: Assembly, LLVM IR, ClangIR, AST dumps, and object files
 - **Bidirectional line mapping**: Click on source code to highlight corresponding assembly/IR, and vice versa
-- **LLVM pipeline viewer**: Step through optimization passes and see exactly what each pass does
+- **LLVM pipeline viewer**: Step through optimization passes for both C/C++ files and LLVM IR
 - **Multi-language support**: C, C++, Swift, and LLVM IR
 - **Per-file compiler arguments**: Use comments to specify flags per file
 - **Automatic output detection**: Intelligently detects output type from compiler flags
@@ -38,10 +38,13 @@ Swift support with demangling:
 -- 2. Open a C/C++ file and run
 :Godbolt -O2
 
--- 3. To see LLVM optimization passes:
+-- 3. To see LLVM optimization passes (C/C++ files):
+:GodboltPipeline O2
+
+-- Or for .ll files with custom passes:
 :!clang -S -emit-llvm -O0 -Xclang -disable-O0-optnone % -o %:r.ll
 :edit %:r.ll
-:GodboltPipeline O2
+:GodboltPipeline mem2reg,instcombine
 ```
 
 ## Installation
@@ -138,14 +141,32 @@ Examples:
 
 **`:GodboltPipeline [passes]`**
 
-Runs LLVM optimization passes on the current `.ll` file and opens an interactive 3-pane viewer showing each pass's transformations.
+Runs LLVM optimization passes and opens an interactive 3-pane viewer showing each pass's transformations.
+
+**Supported file types:**
+- `.ll` files: Use custom pass lists or O-levels
+- `.c`/`.cpp` files: Use O-levels only (O0, O1, O2, O3)
 
 Examples:
 ```vim
+" For C/C++ files - view frontend optimization passes
+:GodboltPipeline O2                 " Use O2 optimization level
+:GodboltPipeline O3                 " Use O3 optimization level
+
+" For .ll files - use custom passes or O-levels
 :GodboltPipeline                    " Use default O2 pipeline
 :GodboltPipeline O3                 " Use O3 optimization level
 :GodboltPipeline mem2reg,instcombine " Run specific passes
+
+" Workflow for custom passes on C/C++ code:
+" 1. First compile to LLVM IR with O0
+:Godbolt -emit-llvm -O0 -Xclang -disable-O0-optnone
+" 2. Then run custom passes on the .ll file
+:edit %:r.ll
+:GodboltPipeline mem2reg,sroa,instcombine
 ```
+
+**Note:** For C/C++ files, custom pass lists are not supported due to clang's compilation model. Compile to `.ll` first if you need custom passes.
 
 **Pipeline Navigation Commands:**
 

@@ -5,11 +5,69 @@ local ir_utils = require('godbolt.ir_utils')
 -- Debug flag - set to true to see detailed logging
 M.debug = false
 
--- Run opt with a pipeline and capture intermediate IR at each pass
+-- Forward declarations of pipeline functions
+local run_opt_pipeline
+local run_clang_pipeline
+
+-- Helper: Normalize O-level input to clang format
+-- @param input: "O2", "2", "-O2", "default<O2>"
+-- @return: "-O2" or nil if not an O-level
+local function normalize_o_level(input)
+  local level = input:match("^%-?O?(%d)$")
+  if level then
+    return "-O" .. level
+  elseif input:match("^default%<O(%d)%>$") then
+    level = input:match("^default%<O(%d)%>$")
+    return "-O" .. level
+  else
+    return nil
+  end
+end
+
+-- Helper: Check if IR lines contain LLVM IR (not MIR or other formats)
+-- @param ir_lines: array of lines
+-- @return: boolean
+local function is_llvm_ir(ir_lines)
+  for _, line in ipairs(ir_lines) do
+    if line:match("^define ") or line:match("^declare ") then
+      return true
+    end
+  end
+  return false
+end
+
+-- Helper: Detect LTO flags
+-- @param args: string of compiler arguments
+-- @return: boolean
+local function has_lto_flags(args)
+  return args:match("-flto") or args:match("-flink%-time%-optimization")
+end
+
+-- Run optimization pipeline and capture intermediate IR at each pass
+-- Supports both .ll files (opt) and C/C++ files (clang)
+-- @param input_file: path to .ll, .c, or .cpp file
+-- @param passes_str: comma-separated pass names, "default<O2>", or "O2"
+-- @return: array of {name, ir} tables, one per pass
+function M.run_pipeline(input_file, passes_str)
+  if input_file:match("%.ll$") then
+    return run_opt_pipeline(input_file, passes_str)
+  elseif input_file:match("%.c$") or input_file:match("%.cpp$") then
+    local godbolt = require('godbolt')
+    local lang_args = input_file:match("%.cpp$") and
+      godbolt.config.cpp_args or godbolt.config.c_args
+    return run_clang_pipeline(input_file, passes_str, lang_args)
+  else
+    print("[Pipeline] Unsupported file type: " .. input_file)
+    print("[Pipeline] Only .ll, .c, and .cpp files are supported")
+    return nil
+  end
+end
+
+-- Run opt pipeline (LLVM IR files)
 -- @param input_file: path to .ll file
 -- @param passes_str: comma-separated pass names or "default<O2>"
 -- @return: array of {name, ir} tables, one per pass
-function M.run_pipeline(input_file, passes_str)
+run_opt_pipeline = function(input_file, passes_str)
   local cmd = string.format(
     'opt --strip-debug -passes="%s" --print-after-all -S "%s" 2>&1',
     passes_str,
@@ -49,10 +107,106 @@ function M.run_pipeline(input_file, passes_str)
   return passes
 end
 
--- Parse opt --print-after-all output into pass stages
--- @param output: raw output from opt command
+-- Run clang pipeline (C/C++ files)
+-- @param input_file: path to .c or .cpp file
+-- @param passes_str: optimization level (e.g., "O2", "-O2", "2")
+-- @param lang_args: language-specific compiler arguments
+-- @return: array of {name, ir} tables, one per pass
+run_clang_pipeline = function(input_file, passes_str, lang_args)
+  -- Validate: only O-levels for C/C++
+  local opt_level = normalize_o_level(passes_str)
+  if not opt_level then
+    print("[Pipeline] C/C++ files only support O-levels (O0, O1, O2, O3)")
+    print("[Pipeline] For custom passes, compile to .ll first:")
+    print("  :Godbolt -emit-llvm -O0 -Xclang -disable-O0-optnone")
+    print("  Then in the .ll file: :GodboltPipeline mem2reg,instcombine")
+    return nil
+  end
+
+  -- Check for LTO flags
+  local args_str = type(lang_args) == "table" and table.concat(lang_args, " ") or (lang_args or "")
+  if has_lto_flags(args_str) then
+    print("[Pipeline] Error: LTO flags detected in compiler arguments")
+    print("[Pipeline] LTO defers optimizations to link-time, incompatible with -print-after-all")
+    print("[Pipeline] Remove -flto or similar flags to view pipeline")
+    return nil
+  end
+
+  -- Determine compiler (clang or clang++)
+  local compiler = input_file:match("%.cpp$") and "clang++" or "clang"
+
+  -- Build command: clang -mllvm -print-after-all <opt-level> <args> -S -emit-llvm -o /dev/null file.c
+  local cmd_parts = {
+    compiler,
+    "-mllvm", "-print-after-all",
+    opt_level,
+  }
+
+  -- Add language args
+  if lang_args then
+    if type(lang_args) == "string" then
+      -- Split string into individual args
+      for arg in lang_args:gmatch("%S+") do
+        table.insert(cmd_parts, arg)
+      end
+    else
+      -- lang_args is a table
+      for _, arg in ipairs(lang_args) do
+        table.insert(cmd_parts, arg)
+      end
+    end
+  end
+
+  -- Add output options
+  table.insert(cmd_parts, "-S")
+  table.insert(cmd_parts, "-emit-llvm")
+  table.insert(cmd_parts, "-o")
+  table.insert(cmd_parts, "/dev/null")
+  table.insert(cmd_parts, '"' .. input_file .. '"')
+
+  -- Redirect stderr to stdout to capture -print-after-all output
+  local cmd = table.concat(cmd_parts, " ") .. " 2>&1"
+
+  if M.debug then
+    print("[Pipeline Debug] Running clang command:")
+    print("  " .. cmd)
+  end
+
+  -- Execute command and capture output
+  local output = vim.fn.system(cmd)
+  local exit_code = vim.v.shell_error
+
+  if M.debug then
+    print("[Pipeline Debug] Output length: " .. #output .. " bytes")
+    print("[Pipeline Debug] Exit code: " .. exit_code)
+    print("[Pipeline Debug] First 500 chars of output:")
+    print(string.sub(output, 1, 500))
+  end
+
+  -- Check for compilation errors (non-zero exit code or explicit error messages)
+  if exit_code ~= 0 or (output:match("error:") or output:match("fatal error:")) then
+    print("[Pipeline] Compilation error:")
+    print(cmd)
+    local lines = vim.split(output, "\n")
+    for i = 1, math.min(10, #lines) do
+      print(lines[i])
+    end
+    return nil
+  end
+
+  -- Parse the pipeline output to get passes
+  local passes = M.parse_pipeline_output(output, "clang")
+
+  return passes
+end
+
+-- Parse pipeline output into pass stages
+-- @param output: raw output from opt/clang command
+-- @param source_type: "opt" or "clang" (default "opt")
 -- @return: array of {name, ir} tables
-function M.parse_pipeline_output(output)
+function M.parse_pipeline_output(output, source_type)
+  source_type = source_type or "opt"
+
   local passes = {}
   local current_pass = nil
   local current_ir = {}
@@ -76,12 +230,19 @@ function M.parse_pipeline_output(output)
 
       -- Save previous pass if exists
       if current_pass and #current_ir > 0 then
-        table.insert(passes, {
-          name = current_pass,
-          ir = ir_utils.clean_ir(current_ir),
-        })
-        if M.debug then
-          print(string.format("[Pipeline Debug] Saved pass '%s' with %d IR lines", current_pass, #current_ir))
+        -- Validate it's LLVM IR before saving (filter out MIR, assembly, etc.)
+        if is_llvm_ir(current_ir) or #current_ir == 0 then
+          table.insert(passes, {
+            name = current_pass,
+            ir = ir_utils.clean_ir(current_ir),
+          })
+          if M.debug then
+            print(string.format("[Pipeline Debug] Saved pass '%s' with %d IR lines", current_pass, #current_ir))
+          end
+        else
+          if M.debug then
+            print(string.format("[Pipeline Debug] Skipped pass '%s' - not LLVM IR (likely MIR or assembly)", current_pass))
+          end
         end
       end
 
@@ -92,7 +253,9 @@ function M.parse_pipeline_output(output)
 
     elseif current_pass then
       -- Detect final output (ModuleID in stdout means we're done with pass dumps)
-      if line:match("^; ModuleID = ") then
+      -- NOTE: For opt, ModuleID only appears in final stdout output
+      -- For clang, ModuleID appears at the start of each pass dump, so we ignore it
+      if source_type == "opt" and line:match("^; ModuleID = ") then
         -- Any ModuleID means we've hit opt's stdout (final output)
         -- Function-scoped dumps don't have ModuleIDs
         if M.debug then
@@ -100,12 +263,18 @@ function M.parse_pipeline_output(output)
         end
         -- Save the current pass and stop processing
         if current_pass and #current_ir > 0 then
-          table.insert(passes, {
-            name = current_pass,
-            ir = ir_utils.clean_ir(current_ir),
-          })
-          if M.debug then
-            print(string.format("[Pipeline Debug] Saved final pass '%s' with %d IR lines", current_pass, #current_ir))
+          if is_llvm_ir(current_ir) or #current_ir == 0 then
+            table.insert(passes, {
+              name = current_pass,
+              ir = ir_utils.clean_ir(current_ir),
+            })
+            if M.debug then
+              print(string.format("[Pipeline Debug] Saved final pass '%s' with %d IR lines", current_pass, #current_ir))
+            end
+          else
+            if M.debug then
+              print(string.format("[Pipeline Debug] Skipped final pass '%s' - not LLVM IR (likely MIR or assembly)", current_pass))
+            end
           end
         end
         break
@@ -118,12 +287,18 @@ function M.parse_pipeline_output(output)
 
   -- Save last pass if we didn't hit the final output marker
   if current_pass and #current_ir > 0 and #passes == pass_boundary_count - 1 then
-    table.insert(passes, {
-      name = current_pass,
-      ir = ir_utils.clean_ir(current_ir),
-    })
-    if M.debug then
-      print(string.format("[Pipeline Debug] Saved final pass '%s' with %d IR lines", current_pass, #current_ir))
+    if is_llvm_ir(current_ir) or #current_ir == 0 then
+      table.insert(passes, {
+        name = current_pass,
+        ir = ir_utils.clean_ir(current_ir),
+      })
+      if M.debug then
+        print(string.format("[Pipeline Debug] Saved final pass '%s' with %d IR lines", current_pass, #current_ir))
+      end
+    else
+      if M.debug then
+        print(string.format("[Pipeline Debug] Skipped final pass '%s' - not LLVM IR (likely MIR or assembly)", current_pass))
+      end
     end
   end
 

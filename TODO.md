@@ -1,15 +1,12 @@
 # TODO & Feature Ideas
 
-## Current Work in Progress
-
 - [ ] Remove debuginfo from the visible output in the LLVMIR buffer
 - [ ] See if there is any value in mapping the DILexicalBlockScope and DILocalVariable, etc
 - [ ] Complete assembly line mapping (parse `.loc` directives)
 
 ---
 
-## High Priority Features (Tier 1)
-*High impact, reasonable effort - recommended for next development cycle*
+## High Priority Features
 
 ### Assembly & Output Improvements
 - [ ] **CFI Directive Filtering** - Make assembly output more readable
@@ -95,7 +92,7 @@
 
 ---
 
-## Future Ideas (Tier 3)
+## Future Ideas
 *Nice to have features for long-term roadmap*
 
 ### Visualization
@@ -130,14 +127,6 @@
   - Identify optimization opportunities for size reduction
 
 ### Language Support
-- [ ] **Additional Language Support** - Expand user base
-  - Rust (via rustc/LLVM)
-  - Go (with compiler flags)
-  - Zig
-  - Fortran
-  - D language
-  - Carbon (when available)
-
 - [ ] **Cross-Compilation Support**
   - Target different architectures (x86, ARM, RISC-V, etc.)
   - Embedded targets (AVR, MSP430, etc.)
@@ -302,11 +291,6 @@
   - Bookmarking system
 
 ### Platform-Specific Features
-- [ ] Windows-Specific Support
-  - MSVC compiler support
-  - Windows calling conventions
-  - SEH (Structured Exception Handling) visualization
-
 - [ ] Embedded Development
   - MCU-specific optimizations
   - Code size focus
@@ -320,20 +304,3 @@
   - Compute shader analysis
 
 ---
-
-## Notes
-
-**Priority Guidelines:**
-- **Tier 1**: Focus on completing these first - they provide immediate value and build on existing infrastructure
-- **Tier 2**: Plan for medium-term development - significant impact but require more design work
-- **Tier 3**: Long-term vision - explore when core features are solid
-
-**Implementation Order Suggestions:**
-1. Complete existing WIP features (assembly line mapping)
-2. Add CFI filtering and compile_commands.json (quick wins)
-3. Expand MLIR support (leverages existing pipeline code)
-4. Add multi-compiler and diff viewers (major features)
-5. Explore advanced visualization and analysis tools
-
-**Community Contributions:**
-Many of these features would make excellent community contributions. Consider marking issues as "good first issue" or "help wanted" on GitHub.
