@@ -52,6 +52,7 @@ function M.parse_pipeline_output(output)
   local current_ir = {}
   local line_count = 0
   local pass_boundary_count = 0
+  local seen_module_id = false
 
   for line in output:gmatch("[^\r\n]+") do
     line_count = line_count + 1
@@ -81,15 +82,40 @@ function M.parse_pipeline_output(output)
       -- Start new pass
       current_pass = pass_name
       current_ir = {}
+      seen_module_id = false
 
     elseif current_pass then
-      -- We're inside a pass dump - collect all lines
-      table.insert(current_ir, line)
+      -- Detect final output (second ModuleID means we've hit opt's stdout)
+      if line:match("^; ModuleID = ") then
+        if seen_module_id then
+          -- This is the final output section, stop collecting for this pass
+          if M.debug then
+            print(string.format("[Pipeline Debug] Found final output at line %d, stopping collection", line_count))
+          end
+          -- Save the current pass and stop processing
+          if current_pass and #current_ir > 0 then
+            table.insert(passes, {
+              name = current_pass,
+              ir = current_ir,
+            })
+            if M.debug then
+              print(string.format("[Pipeline Debug] Saved final pass '%s' with %d IR lines", current_pass, #current_ir))
+            end
+          end
+          break
+        else
+          seen_module_id = true
+          table.insert(current_ir, line)
+        end
+      else
+        -- We're inside a pass dump - collect all lines
+        table.insert(current_ir, line)
+      end
     end
   end
 
-  -- Don't forget the last pass
-  if current_pass and #current_ir > 0 then
+  -- Save last pass if we didn't hit the final output marker
+  if current_pass and #current_ir > 0 and #passes == pass_boundary_count - 1 then
     table.insert(passes, {
       name = current_pass,
       ir = current_ir,
