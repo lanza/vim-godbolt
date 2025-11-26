@@ -311,22 +311,7 @@ function M.godbolt_pipeline(args_str)
 
   print(string.format("[Pipeline] Captured %d pass stages", #passes))
 
-  -- Create new window for output
-  if M.config.window_cmd then
-    vim.cmd(M.config.window_cmd)
-  else
-    vim.cmd("vertical botright new")
-  end
-
-  -- Set up buffer
-  vim.bo.buftype = "nofile"
-  vim.bo.bufhidden = "hide"
-  vim.bo.swapfile = false
-  vim.wo.number = false
-
-  local output_bufnr = vim.fn.bufnr("%")
-
-  -- Setup pipeline viewer
+  -- Setup pipeline viewer (it will create its own 3-pane layout)
   local ok, pipeline_viewer = pcall(require, 'godbolt.pipeline_viewer')
   if ok then
     -- Merge pipeline config with line_mapping config
@@ -334,7 +319,7 @@ function M.godbolt_pipeline(args_str)
       line_mapping = M.config.line_mapping
     })
 
-    pipeline_viewer.setup(source_bufnr, output_bufnr, passes, viewer_config)
+    pipeline_viewer.setup(source_bufnr, passes, viewer_config)
   else
     print("[Pipeline] Failed to load pipeline viewer")
   end
