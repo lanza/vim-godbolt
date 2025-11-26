@@ -1,4 +1,4 @@
--- vim-godbolt plugin initialization
+-- godbolt.nvim plugin initialization
 
 -- Create the VGodbolt command
 vim.api.nvim_create_user_command('VGodbolt', function(opts)
