@@ -103,3 +103,29 @@ end, {
   nargs = '?',
   desc = 'Toggle pipeline debug mode (on/off/toggle)'
 })
+
+-- Strip optnone attribute from current file
+vim.api.nvim_create_user_command('GodboltStripOptnone', function()
+  local file = vim.fn.expand("%")
+
+  if not file:match("%.ll$") then
+    print("[Godbolt] Only works with LLVM IR (.ll) files")
+    return
+  end
+
+  local cmd = string.format('opt -strip-optnone -S "%s" -o "%s"', file, file)
+  print("[Godbolt] Running: " .. cmd)
+
+  local result = vim.fn.system(cmd)
+
+  if vim.v.shell_error == 0 then
+    print("[Godbolt] Successfully stripped 'optnone' attributes")
+    print("[Godbolt] Reloading file...")
+    vim.cmd('edit!')
+  else
+    print("[Godbolt] Error stripping optnone:")
+    print(result)
+  end
+end, {
+  desc = 'Strip optnone attributes from current LLVM IR file'
+})

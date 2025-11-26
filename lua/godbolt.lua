@@ -268,18 +268,44 @@ function M.godbolt_pipeline(args_str)
   end
 
   if #passes == 0 then
+    -- Check if the file has optnone attribute (prevents optimization)
+    local file_content = vim.fn.readfile(file)
+    local has_optnone = false
+    for _, line in ipairs(file_content) do
+      if line:match("optnone") then
+        has_optnone = true
+        break
+      end
+    end
+
     print("[Pipeline] No passes captured.")
-    print("[Pipeline] This might mean:")
-    print("  1. The pass didn't produce any output")
-    print("  2. Your LLVM version doesn't support --print-after-all")
-    print("  3. The pass name is incorrect")
-    print("")
-    print("  To debug, enable debug mode:")
-    print("    :lua require('godbolt.pipeline').debug = true")
-    print("  Then run :VGodboltPipeline again")
-    print("")
-    print("  Or test manually:")
-    print("    opt -passes=\"" .. passes_to_run .. "\" --print-after-all -S " .. file)
+
+    if has_optnone then
+      print("")
+      print("  *** FOUND PROBLEM: Your IR has 'optnone' attribute ***")
+      print("  This prevents all optimization passes from running!")
+      print("")
+      print("  Solutions:")
+      print("    1. Recompile without -O0:")
+      print("       clang -S -emit-llvm yourfile.c -o yourfile.ll")
+      print("")
+      print("    2. Or strip optnone from existing file:")
+      print("       opt -strip-optnone -S " .. file .. " -o " .. file)
+      print("")
+    else
+      print("")
+      print("  Possible reasons:")
+      print("    1. The pass didn't produce any output")
+      print("    2. Your LLVM version doesn't support --print-after-all")
+      print("    3. The pass name is incorrect")
+      print("")
+      print("  To debug, enable debug mode:")
+      print("    :GodboltDebug on")
+      print("  Then run :VGodboltPipeline again")
+      print("")
+      print("  Or test manually:")
+      print("    opt -passes=\"" .. passes_to_run .. "\" --print-after-all -S " .. file)
+    end
     return
   end
 
