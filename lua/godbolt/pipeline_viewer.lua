@@ -67,6 +67,9 @@ end
 
 -- Create 3-pane layout: pass list | before | after
 function M.create_layout()
+  -- Create new tab for pipeline viewer
+  vim.cmd('tabnew')
+
   -- Create pass list buffer (left pane)
   M.state.pass_list_bufnr = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'buftype', 'nofile')
@@ -88,13 +91,12 @@ function M.create_layout()
   vim.api.nvim_buf_set_option(M.state.after_bufnr, 'swapfile', false)
   vim.api.nvim_buf_set_option(M.state.after_bufnr, 'filetype', 'llvm')
 
-  -- Create window layout: vertical splits
-  -- Start with full window, split into 3 parts
-
-  -- Create pass list window (left, 30 columns wide)
-  vim.cmd('topleft vertical 30 new')
+  -- Set the current window to show pass list buffer
   M.state.pass_list_winid = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(M.state.pass_list_winid, M.state.pass_list_bufnr)
+
+  -- Resize pass list window to 30 columns
+  vim.cmd('vertical resize 30')
   vim.api.nvim_win_set_option(M.state.pass_list_winid, 'number', false)
   vim.api.nvim_win_set_option(M.state.pass_list_winid, 'relativenumber', false)
   vim.api.nvim_win_set_option(M.state.pass_list_winid, 'cursorline', true)
