@@ -9,7 +9,7 @@ M.debug = false
 -- @return: array of {name, ir} tables, one per pass
 function M.run_pipeline(input_file, passes_str)
   local cmd = string.format(
-    'opt --strip-debug -passes="%s" --print-after-all --print-module-scope -S "%s" 2>&1',
+    'opt --strip-debug -passes="%s" --print-after-all -S "%s" 2>&1',
     passes_str,
     input_file
   )
@@ -97,28 +97,24 @@ function M.parse_pipeline_output(output)
       seen_module_id = false
 
     elseif current_pass then
-      -- Detect final output (second ModuleID means we've hit opt's stdout)
+      -- Detect final output (ModuleID in stdout means we're done with pass dumps)
       if line:match("^; ModuleID = ") then
-        if seen_module_id then
-          -- This is the final output section, stop collecting for this pass
-          if M.debug then
-            print(string.format("[Pipeline Debug] Found final output at line %d, stopping collection", line_count))
-          end
-          -- Save the current pass and stop processing
-          if current_pass and #current_ir > 0 then
-            table.insert(passes, {
-              name = current_pass,
-              ir = current_ir,
-            })
-            if M.debug then
-              print(string.format("[Pipeline Debug] Saved final pass '%s' with %d IR lines", current_pass, #current_ir))
-            end
-          end
-          break
-        else
-          seen_module_id = true
-          table.insert(current_ir, line)
+        -- Any ModuleID means we've hit opt's stdout (final output)
+        -- Function-scoped dumps don't have ModuleIDs
+        if M.debug then
+          print(string.format("[Pipeline Debug] Found final output at line %d, stopping collection", line_count))
         end
+        -- Save the current pass and stop processing
+        if current_pass and #current_ir > 0 then
+          table.insert(passes, {
+            name = current_pass,
+            ir = current_ir,
+          })
+          if M.debug then
+            print(string.format("[Pipeline Debug] Saved final pass '%s' with %d IR lines", current_pass, #current_ir))
+          end
+        end
+        break
       else
         -- We're inside a pass dump - collect all lines
         table.insert(current_ir, line)
