@@ -36,12 +36,12 @@ Swift support with demangling:
 }
 
 -- 2. Open a C/C++ file and run
-:VGodbolt -O2
+:Godbolt -O2
 
 -- 3. To see LLVM optimization passes:
 :!clang -S -emit-llvm -O0 -Xclang -disable-O0-optnone % -o %:r.ll
 :edit %:r.ll
-:VGodboltPipeline O2
+:GodboltPipeline O2
 ```
 
 ## Installation
@@ -119,30 +119,30 @@ All fields are optional and will use sensible defaults if not specified.
 
 ### Basic Compilation
 
-**`:VGodbolt [compiler-args]`**
+**`:Godbolt [compiler-args]`**
 
 Compiles the current file to assembly/IR in a new split window.
 
 Examples:
 ```vim
-:VGodbolt              " Basic compilation
-:VGodbolt -O3          " With optimization
-:VGodbolt -O2 -march=native
-:VGodbolt -emit-llvm   " Output LLVM IR instead of assembly
-:VGodbolt -emit-cir    " Output ClangIR (MLIR)
+:Godbolt              " Basic compilation
+:Godbolt -O3          " With optimization
+:Godbolt -O2 -march=native
+:Godbolt -emit-llvm   " Output LLVM IR instead of assembly
+:Godbolt -emit-cir    " Output ClangIR (MLIR)
 ```
 
 ### Pipeline Viewer
 
-**`:VGodboltPipeline [passes]`**
+**`:GodboltPipeline [passes]`**
 
 Runs LLVM optimization passes on the current `.ll` file and opens an interactive 3-pane viewer showing each pass's transformations.
 
 Examples:
 ```vim
-:VGodboltPipeline                    " Use default O2 pipeline
-:VGodboltPipeline O3                 " Use O3 optimization level
-:VGodboltPipeline mem2reg,instcombine " Run specific passes
+:GodboltPipeline                    " Use default O2 pipeline
+:GodboltPipeline O3                 " Use O3 optimization level
+:GodboltPipeline mem2reg,instcombine " Run specific passes
 ```
 
 **Pipeline Navigation Commands:**
@@ -207,7 +207,7 @@ define i32 @main() {
 }
 ```
 
-These arguments are combined with any arguments passed to `:VGodbolt`.
+These arguments are combined with any arguments passed to `:Godbolt`.
 
 ### Pipeline Comments
 
@@ -231,8 +231,8 @@ The plugin automatically detects the output type based on compiler flags and set
 
 Examples:
 ```vim
-:VGodbolt -emit-llvm -O2          " Outputs LLVM IR
-:VGodbolt -emit-cir               " Outputs ClangIR (MLIR)
+:Godbolt -emit-llvm -O2          " Outputs LLVM IR
+:Godbolt -emit-cir               " Outputs ClangIR (MLIR)
 ```
 
 Or use file-level comments:
@@ -247,7 +247,7 @@ Compiler warnings and errors are separated from the output and displayed in the 
 
 For example, if you run:
 ```vim
-:VGodbolt -masm=intel
+:Godbolt -masm=intel
 ```
 
 You'll see in `:messages`:
@@ -280,7 +280,7 @@ The plugin automatically maps source lines to compiled output lines (and vice ve
 
 **To use LLVM IR (recommended):**
 ```vim
-:VGodbolt -emit-llvm
+:Godbolt -emit-llvm
 ```
 
 **Configuration:**
@@ -296,7 +296,7 @@ require('godbolt').setup({
 
 **Example:**
 1. Open a C++ file
-2. Run `:VGodbolt`
+2. Run `:Godbolt`
 3. Move your cursor to line 5 in source
 4. Lines 42-48 in assembly are automatically highlighted
 5. Click on line 45 in assembly → line 5 in source is highlighted
@@ -316,7 +316,7 @@ The pipeline viewer is a unique feature that lets you step through LLVM optimiza
 
 2. Open the IR file in Neovim and run:
    ```vim
-   :VGodboltPipeline O2
+   :GodboltPipeline O2
    ```
 
 3. The plugin opens a 3-pane layout:
@@ -357,7 +357,7 @@ If you see "No passes captured" with `optnone` warning:
 :edit example.ll
 
 " 4. Run the pipeline viewer
-:VGodboltPipeline O2
+:GodboltPipeline O2
 
 " 5. Navigate through passes
 :NextPass
@@ -387,14 +387,14 @@ llvm-ir yourfile.c -o yourfile.ll
 
 ### Combining with Terminal
 
-Use `:VGodbolt` output as a learning tool alongside your code:
+Use `:Godbolt` output as a learning tool alongside your code:
 
 ```vim
 " Open your source in a split
 :vsplit yourfile.c
 
 " Compile to assembly in the right pane
-:VGodbolt -O2
+:Godbolt -O2
 
 " Now you can see your source and assembly side-by-side
 ```
@@ -404,9 +404,9 @@ Use `:VGodbolt` output as a learning tool alongside your code:
 Experiment with specific LLVM passes to understand their effect:
 
 ```vim
-:VGodboltPipeline mem2reg
-:VGodboltPipeline instcombine,simplifycfg
-:VGodboltPipeline loop-unroll,loop-vectorize
+:GodboltPipeline mem2reg
+:GodboltPipeline instcombine,simplifycfg
+:GodboltPipeline loop-unroll,loop-vectorize
 ```
 
 ### Viewing Multiple Optimization Levels
@@ -414,9 +414,9 @@ Experiment with specific LLVM passes to understand their effect:
 Compare different optimization levels:
 
 ```vim
-:VGodbolt -O0
+:Godbolt -O0
 " Then create another split:
-:VGodbolt -O3
+:Godbolt -O3
 " Use :diffthis in both buffers to compare
 ```
 
@@ -425,7 +425,7 @@ Compare different optimization levels:
 ### Line Mapping Not Working
 
 - Ensure your code is being compiled with `-g` (the plugin adds this automatically)
-- For LLVM IR, use `:VGodbolt -emit-llvm` for best line mapping support
+- For LLVM IR, use `:Godbolt -emit-llvm` for best line mapping support
 - Line mapping requires debug metadata in the output
 - Check `:messages` for any errors
 
@@ -444,7 +444,7 @@ Compare different optimization levels:
 3. **Enable debug mode to see what's happening:**
    ```vim
    :GodboltDebug on
-   :VGodboltPipeline O2
+   :GodboltPipeline O2
    ```
 
 ### Compiler Not Found

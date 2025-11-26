@@ -1,7 +1,7 @@
 -- godbolt.nvim plugin initialization
 
--- Create the VGodbolt command
-vim.api.nvim_create_user_command('VGodbolt', function(opts)
+-- Create the Godbolt command
+vim.api.nvim_create_user_command('Godbolt', function(opts)
   local godbolt = require('godbolt')
   -- opts.args is a single string, pass it as is
   godbolt.godbolt(opts.args)
@@ -10,8 +10,8 @@ end, {
   desc = 'Compile current file to assembly/IR using Godbolt-style compilation'
 })
 
--- Create the VGodboltPipeline command
-vim.api.nvim_create_user_command('VGodboltPipeline', function(opts)
+-- Create the GodboltPipeline command
+vim.api.nvim_create_user_command('GodboltPipeline', function(opts)
   local godbolt = require('godbolt')
   godbolt.godbolt_pipeline(opts.args)
 end, {

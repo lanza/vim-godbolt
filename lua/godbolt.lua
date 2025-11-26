@@ -197,7 +197,7 @@ function M.godbolt(args_str)
   end
 
   -- Trigger autocommand event
-  vim.cmd("doautocmd User VimGodbolt")
+  vim.cmd("doautocmd User Godbolt")
 
 end
 
@@ -325,7 +325,7 @@ function M.godbolt_pipeline(args_str)
   end
 
   -- Trigger autocommand event
-  vim.cmd("doautocmd User VimGodboltPipeline")
+  vim.cmd("doautocmd User GodboltPipeline")
 end
 
 return M
