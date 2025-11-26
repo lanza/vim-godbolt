@@ -63,6 +63,9 @@ function M.setup(source_bufnr, passes, config)
 
   -- Set up key mappings
   M.setup_keymaps()
+
+  -- Position cursor on first pass entry (header + separator + blank + first pass = line 4)
+  vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {4, 0})
 end
 
 -- Create 3-pane layout: pass list | before | after
@@ -95,8 +98,9 @@ function M.create_layout()
   M.state.pass_list_winid = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(M.state.pass_list_winid, M.state.pass_list_bufnr)
 
-  -- Resize pass list window to 30 columns
+  -- Resize pass list window to 30 columns and fix width
   vim.cmd('vertical resize 30')
+  vim.api.nvim_win_set_option(M.state.pass_list_winid, 'winfixwidth', true)
   vim.api.nvim_win_set_option(M.state.pass_list_winid, 'number', false)
   vim.api.nvim_win_set_option(M.state.pass_list_winid, 'relativenumber', false)
   vim.api.nvim_win_set_option(M.state.pass_list_winid, 'cursorline', true)
@@ -293,6 +297,43 @@ function M.last_pass()
   M.show_diff(#M.state.passes)
 end
 
+-- Helper function to check if a line contains a pass entry
+local function is_pass_line(line)
+  return line and line:match("^.%s*%d+%.") ~= nil
+end
+
+-- Navigate to next pass line in the pass list
+local function goto_next_pass_line()
+  local cursor = vim.api.nvim_win_get_cursor(M.state.pass_list_winid)
+  local current_line = cursor[1]
+  local lines = vim.api.nvim_buf_get_lines(M.state.pass_list_bufnr, 0, -1, false)
+
+  -- Find next pass line
+  for i = current_line + 1, #lines do
+    if is_pass_line(lines[i]) then
+      vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {i, 0})
+      M.select_pass_under_cursor()
+      return
+    end
+  end
+end
+
+-- Navigate to previous pass line in the pass list
+local function goto_prev_pass_line()
+  local cursor = vim.api.nvim_win_get_cursor(M.state.pass_list_winid)
+  local current_line = cursor[1]
+  local lines = vim.api.nvim_buf_get_lines(M.state.pass_list_bufnr, 0, -1, false)
+
+  -- Find previous pass line
+  for i = current_line - 1, 1, -1 do
+    if is_pass_line(lines[i]) then
+      vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {i, 0})
+      M.select_pass_under_cursor()
+      return
+    end
+  end
+end
+
 -- Select pass under cursor in pass list
 function M.select_pass_under_cursor()
   local cursor = vim.api.nvim_win_get_cursor(M.state.pass_list_winid)
@@ -304,7 +345,7 @@ function M.select_pass_under_cursor()
     return
   end
 
-  -- Match pattern like "▶  1. PassName" or "   1. PassName"
+  -- Match pattern like ">  1. PassName" or "   1. PassName"
   local pass_index = line:match("^.%s*(%d+)%.")
   if pass_index then
     M.show_diff(tonumber(pass_index))
@@ -320,34 +361,22 @@ function M.setup_keymaps()
   local bufnr = M.state.pass_list_bufnr
 
   -- Navigation in pass list
-  vim.keymap.set('n', 'j', function()
-    vim.cmd('normal! j')
-    M.select_pass_under_cursor()
-  end, {
+  vim.keymap.set('n', 'j', goto_next_pass_line, {
     buffer = bufnr,
     desc = 'Next pass'
   })
 
-  vim.keymap.set('n', 'k', function()
-    vim.cmd('normal! k')
-    M.select_pass_under_cursor()
-  end, {
+  vim.keymap.set('n', 'k', goto_prev_pass_line, {
     buffer = bufnr,
     desc = 'Previous pass'
   })
 
-  vim.keymap.set('n', '<Down>', function()
-    vim.cmd('normal! j')
-    M.select_pass_under_cursor()
-  end, {
+  vim.keymap.set('n', '<Down>', goto_next_pass_line, {
     buffer = bufnr,
     desc = 'Next pass'
   })
 
-  vim.keymap.set('n', '<Up>', function()
-    vim.cmd('normal! k')
-    M.select_pass_under_cursor()
-  end, {
+  vim.keymap.set('n', '<Up>', goto_prev_pass_line, {
     buffer = bufnr,
     desc = 'Previous pass'
   })
