@@ -84,3 +84,22 @@ vim.api.nvim_create_user_command('LastPass', function()
 end, {
   desc = 'Go to last optimization pass'
 })
+
+-- Debug commands
+vim.api.nvim_create_user_command('GodboltDebug', function(opts)
+  local pipeline = require('godbolt.pipeline')
+  if opts.args == "on" or opts.args == "true" or opts.args == "1" then
+    pipeline.debug = true
+    print("[Pipeline] Debug mode enabled")
+  elseif opts.args == "off" or opts.args == "false" or opts.args == "0" then
+    pipeline.debug = false
+    print("[Pipeline] Debug mode disabled")
+  else
+    -- Toggle
+    pipeline.debug = not pipeline.debug
+    print(string.format("[Pipeline] Debug mode %s", pipeline.debug and "enabled" or "disabled"))
+  end
+end, {
+  nargs = '?',
+  desc = 'Toggle pipeline debug mode (on/off/toggle)'
+})

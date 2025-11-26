@@ -273,7 +273,13 @@ function M.godbolt_pipeline(args_str)
     print("  1. The pass didn't produce any output")
     print("  2. Your LLVM version doesn't support --print-after-all")
     print("  3. The pass name is incorrect")
-    print("  Try: opt -passes=\"" .. passes_to_run .. "\" --help-list-passes | grep -i " .. passes_to_run)
+    print("")
+    print("  To debug, enable debug mode:")
+    print("    :lua require('godbolt.pipeline').debug = true")
+    print("  Then run :VGodboltPipeline again")
+    print("")
+    print("  Or test manually:")
+    print("    opt -passes=\"" .. passes_to_run .. "\" --print-after-all -S " .. file)
     return
   end
 

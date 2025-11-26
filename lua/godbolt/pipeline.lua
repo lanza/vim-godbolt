@@ -1,5 +1,8 @@
 local M = {}
 
+-- Debug flag - set to true to see detailed logging
+M.debug = false
+
 -- Run opt with a pipeline and capture intermediate IR at each pass
 -- @param input_file: path to .ll file
 -- @param passes_str: comma-separated pass names or "default<O2>"
@@ -11,8 +14,19 @@ function M.run_pipeline(input_file, passes_str)
     input_file
   )
 
+  if M.debug then
+    print("[Pipeline Debug] Running command:")
+    print("  " .. cmd)
+  end
+
   -- Execute command and capture output
   local output = vim.fn.system(cmd)
+
+  if M.debug then
+    print("[Pipeline Debug] Output length: " .. #output .. " bytes")
+    print("[Pipeline Debug] First 500 chars of output:")
+    print(string.sub(output, 1, 500))
+  end
 
   -- Check for errors (look for "opt:" error prefix in output)
   if output:match("^opt:") or output:match("\nopt:") then
@@ -36,19 +50,32 @@ function M.parse_pipeline_output(output)
   local passes = {}
   local current_pass = nil
   local current_ir = {}
+  local line_count = 0
+  local pass_boundary_count = 0
 
   for line in output:gmatch("[^\r\n]+") do
+    line_count = line_count + 1
+
     -- Detect pass boundary: ; *** IR Dump After PassName ***
     -- Use non-greedy match (.-) to avoid consuming the trailing ***
     local pass_name = line:match("^; %*%*%* IR Dump After (.-)%s+%*%*%*")
 
     if pass_name then
+      pass_boundary_count = pass_boundary_count + 1
+
+      if M.debug then
+        print(string.format("[Pipeline Debug] Found pass boundary at line %d: '%s'", line_count, pass_name))
+      end
+
       -- Save previous pass if exists
       if current_pass and #current_ir > 0 then
         table.insert(passes, {
           name = current_pass,
           ir = current_ir,
         })
+        if M.debug then
+          print(string.format("[Pipeline Debug] Saved pass '%s' with %d IR lines", current_pass, #current_ir))
+        end
       end
 
       -- Start new pass
@@ -67,6 +94,20 @@ function M.parse_pipeline_output(output)
       name = current_pass,
       ir = current_ir,
     })
+    if M.debug then
+      print(string.format("[Pipeline Debug] Saved final pass '%s' with %d IR lines", current_pass, #current_ir))
+    end
+  end
+
+  if M.debug then
+    print(string.format("[Pipeline Debug] Parsing summary:"))
+    print(string.format("  Total lines processed: %d", line_count))
+    print(string.format("  Pass boundaries found: %d", pass_boundary_count))
+    print(string.format("  Passes captured: %d", #passes))
+    if #passes > 0 then
+      print(string.format("  First pass: '%s'", passes[1].name))
+      print(string.format("  Last pass: '%s'", passes[#passes].name))
+    end
   end
 
   return passes
