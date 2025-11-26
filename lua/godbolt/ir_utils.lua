@@ -9,8 +9,11 @@ function M.clean_ir(ir_lines)
   local brace_count = 0
 
   for _, line in ipairs(ir_lines) do
+    -- Skip all comment lines (including "; Function Attrs:")
+    if line:match("^%s*;") then
+      -- Skip comments
     -- Skip metadata and header lines
-    if line:match("^; ModuleID") or
+    elseif line:match("^; ModuleID") or
        line:match("^source_filename") or
        line:match("^target datalayout") or
        line:match("^target triple") then
@@ -31,10 +34,11 @@ function M.clean_ir(ir_lines)
       if brace_count == 0 and line:match("}") then
         in_function = false
       end
-    -- Skip attributes, metadata, etc at the end
-    elseif line:match("^attributes") or
+    -- Skip declares, attributes, metadata, etc at the end
+    elseif line:match("^declare ") or
+           line:match("^attributes") or
            line:match("^!") or
-           line:match("^declare ") then
+           line:match("^@") then  -- Skip global variables/constants too
       -- Skip these
     end
   end
@@ -42,10 +46,10 @@ function M.clean_ir(ir_lines)
   return cleaned
 end
 
--- Extract a specific function from IR
+-- Extract a specific function from IR and clean it
 -- @param ir_lines: array of IR lines
 -- @param func_name: function name to extract (e.g., "foo")
--- @return: array of lines containing only that function
+-- @return: array of lines containing only that function (cleaned)
 function M.extract_function(ir_lines, func_name)
   local func_ir = {}
   local in_target_function = false
@@ -53,10 +57,18 @@ function M.extract_function(ir_lines, func_name)
 
   for _, line in ipairs(ir_lines) do
     -- Check if this is the start of our target function
-    if line:match("^define .* @" .. func_name .. "%(") then
+    if line:match("^define .* @" .. func_name .. "%(") or
+       line:match("^define .* @" .. func_name .. "%(") then
       in_target_function = true
       brace_count = 0
       table.insert(func_ir, line)
+      -- Count opening brace on define line if present
+      local open_braces = select(2, line:gsub("{", ""))
+      local close_braces = select(2, line:gsub("}", ""))
+      brace_count = brace_count + open_braces - close_braces
+      if brace_count == 0 and line:match("}") then
+        break
+      end
     elseif in_target_function then
       table.insert(func_ir, line)
 
@@ -71,7 +83,8 @@ function M.extract_function(ir_lines, func_name)
     end
   end
 
-  return func_ir
+  -- Clean the extracted function to remove any comments that slipped through
+  return M.clean_ir(func_ir)
 end
 
 return M

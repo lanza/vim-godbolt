@@ -1,6 +1,7 @@
 ---@diagnostic disable: undefined-global
 local pipeline = require('godbolt.pipeline')
 local pipeline_viewer = require('godbolt.pipeline_viewer')
+local ir_utils = require('godbolt.ir_utils')
 
 describe("pipeline integration", function()
   it("full flow: pipeline + viewer with single function", function()
@@ -62,5 +63,33 @@ describe("pipeline integration", function()
     -- Clean up
     pcall(pipeline_viewer.cleanup)
     pcall(vim.api.nvim_buf_delete, source_bufnr, {force = true})
+  end)
+
+  it("strips all bottom matter from extracted functions", function()
+    local test_file = vim.fn.fnamemodify("tests/fixtures/real_world.ll", ":p")
+
+    -- Get stripped input
+    local input_ir = pipeline.get_stripped_input(test_file)
+    assert.is_not_nil(input_ir)
+
+    -- Extract the quicksort function
+    local quicksort_ir = ir_utils.extract_function(input_ir, "quicksort")
+    assert.is_not_nil(quicksort_ir)
+    assert.is.truthy(#quicksort_ir > 0, "Should extract quicksort function")
+
+    local ir_text = table.concat(quicksort_ir, "\n")
+
+    -- Should contain the function
+    assert.is_not_nil(ir_text:match("define void @quicksort"), "Should contain quicksort function")
+
+    -- Should NOT contain bottom matter
+    assert.is_nil(ir_text:match("; Function Attrs:"), "Should NOT contain Function Attrs comments")
+    assert.is_nil(ir_text:match("declare "), "Should NOT contain declare statements")
+    assert.is_nil(ir_text:match("attributes #"), "Should NOT contain attributes")
+    assert.is_nil(ir_text:match("!llvm%.module%.flags"), "Should NOT contain module flags")
+    assert.is_nil(ir_text:match("!llvm%.ident"), "Should NOT contain llvm.ident")
+
+    -- Should NOT contain comments at all
+    assert.is_nil(ir_text:match("^;"), "Should NOT contain comment lines")
   end)
 end)
