@@ -168,6 +168,15 @@ Examples:
 
 **Note:** For C/C++ files, custom pass lists are not supported due to clang's compilation model. Compile to `.ll` first if you need custom passes.
 
+**Pass Scope Indicators:**
+
+The pipeline viewer shows scope indicators for each pass:
+- **[M]** - Module pass: operates on the entire module (all functions, globals)
+- **[F]** - Function pass: operates on a single function
+- **[C]** - CGSCC pass: operates on a call graph strongly-connected component
+
+Module passes show the full module before/after, while function passes show only the specific function being optimized.
+
 **Pipeline Navigation Commands:**
 
 - **`:NextPass`** - Navigate to the next optimization pass

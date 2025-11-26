@@ -43,6 +43,41 @@ local function has_lto_flags(args)
   return args:match("-flto") or args:match("-flink%-time%-optimization")
 end
 
+-- Helper: Parse pass header to extract scope information
+-- @param pass_line: line containing pass boundary marker
+-- @return: pass_name, scope_type, scope_target
+--   pass_name: base pass name (e.g., "SROAPass")
+--   scope_type: "module" | "function" | "cgscc" | "unknown"
+--   scope_target: "[module]" | "quicksort" | "quicksort" (CGSCC without parens)
+local function parse_pass_header(pass_line)
+  local pass_info = pass_line:match("^; %*%*%* IR Dump After (.-)%s+%*%*%*$")
+  if not pass_info then
+    return nil, nil, nil
+  end
+
+  -- Check for module pass: "PassName on [module]"
+  local pass_name, module_marker = pass_info:match("^(.+) on (%[module%])$")
+  if module_marker then
+    return pass_name, "module", module_marker
+  end
+
+  -- Check for CGSCC pass: "PassName on (func)"
+  -- Extract the function name from inside parentheses
+  local pass_name_cgscc, cgscc_content = pass_info:match("^(.+) on %((.+)%)$")
+  if cgscc_content then
+    return pass_name_cgscc, "cgscc", cgscc_content
+  end
+
+  -- Check for function pass: "PassName on func"
+  local pass_name_func, func_name = pass_info:match("^(.+) on (.+)$")
+  if func_name then
+    return pass_name_func, "function", func_name
+  end
+
+  -- Pass without scope (shouldn't happen with -print-after-all, but handle gracefully)
+  return pass_info, "unknown", nil
+end
+
 -- Run optimization pipeline and capture intermediate IR at each pass
 -- Supports both .ll files (opt) and C/C++ files (clang)
 -- @param input_file: path to .ll, .c, or .cpp file
@@ -203,12 +238,14 @@ end
 -- Parse pipeline output into pass stages
 -- @param output: raw output from opt/clang command
 -- @param source_type: "opt" or "clang" (default "opt")
--- @return: array of {name, ir} tables
+-- @return: array of {name, scope_type, scope_target, ir, stats} tables
 function M.parse_pipeline_output(output, source_type)
   source_type = source_type or "opt"
 
   local passes = {}
   local current_pass = nil
+  local current_scope_type = nil
+  local current_scope_target = nil
   local current_ir = {}
   local line_count = 0
   local pass_boundary_count = 0
@@ -217,15 +254,15 @@ function M.parse_pipeline_output(output, source_type)
   for line in output:gmatch("[^\r\n]+") do
     line_count = line_count + 1
 
-    -- Detect pass boundary: ; *** IR Dump After PassName ***
-    -- Use non-greedy match (.-) to avoid consuming the trailing ***
-    local pass_name = line:match("^; %*%*%* IR Dump After (.-)%s+%*%*%*")
+    -- Try to parse pass header to extract scope information
+    local pass_name, scope_type, scope_target = parse_pass_header(line)
 
     if pass_name then
       pass_boundary_count = pass_boundary_count + 1
 
       if M.debug then
-        print(string.format("[Pipeline Debug] Found pass boundary at line %d: '%s'", line_count, pass_name))
+        print(string.format("[Pipeline Debug] Found pass boundary at line %d: '%s' (scope: %s, target: %s)",
+          line_count, pass_name, scope_type or "none", scope_target or "none"))
       end
 
       -- Save previous pass if exists
@@ -234,7 +271,9 @@ function M.parse_pipeline_output(output, source_type)
         if is_llvm_ir(current_ir) or #current_ir == 0 then
           table.insert(passes, {
             name = current_pass,
-            ir = ir_utils.clean_ir(current_ir),
+            scope_type = current_scope_type,
+            scope_target = current_scope_target,
+            ir = ir_utils.clean_ir(current_ir, current_scope_type),
           })
           if M.debug then
             print(string.format("[Pipeline Debug] Saved pass '%s' with %d IR lines", current_pass, #current_ir))
@@ -247,7 +286,16 @@ function M.parse_pipeline_output(output, source_type)
       end
 
       -- Start new pass
-      current_pass = pass_name
+      -- Reconstruct full pass name with scope for display
+      if scope_target then
+        current_pass = pass_name .. " on " .. (scope_type == "module" and scope_target or
+                                                scope_type == "cgscc" and "(" .. scope_target .. ")" or
+                                                scope_target)
+      else
+        current_pass = pass_name
+      end
+      current_scope_type = scope_type
+      current_scope_target = scope_target
       current_ir = {}
       seen_module_id = false
 
@@ -266,7 +314,9 @@ function M.parse_pipeline_output(output, source_type)
           if is_llvm_ir(current_ir) or #current_ir == 0 then
             table.insert(passes, {
               name = current_pass,
-              ir = ir_utils.clean_ir(current_ir),
+              scope_type = current_scope_type,
+              scope_target = current_scope_target,
+              ir = ir_utils.clean_ir(current_ir, current_scope_type),
             })
             if M.debug then
               print(string.format("[Pipeline Debug] Saved final pass '%s' with %d IR lines", current_pass, #current_ir))
@@ -290,7 +340,9 @@ function M.parse_pipeline_output(output, source_type)
     if is_llvm_ir(current_ir) or #current_ir == 0 then
       table.insert(passes, {
         name = current_pass,
-        ir = ir_utils.clean_ir(current_ir),
+        scope_type = current_scope_type,
+        scope_target = current_scope_target,
+        ir = ir_utils.clean_ir(current_ir, current_scope_type),
       })
       if M.debug then
         print(string.format("[Pipeline Debug] Saved final pass '%s' with %d IR lines", current_pass, #current_ir))

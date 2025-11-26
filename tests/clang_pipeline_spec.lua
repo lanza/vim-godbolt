@@ -274,3 +274,159 @@ describe("pipeline dispatcher", function()
     assert.is_nil(result, "Should reject unsupported file types")
   end)
 end)
+
+describe("scope detection", function()
+  it("detects module passes", function()
+    local output = [[
+; *** IR Dump After GlobalOptPass on [module] ***
+; ModuleID = 'test.c'
+define void @foo() { ret void }
+define void @bar() { ret void }
+; *** IR Dump After SROAPass on foo ***
+define void @foo() { ret void }
+]]
+
+    local passes = pipeline.parse_pipeline_output(output, "clang")
+
+    assert.are.equal(2, #passes, "Should parse both passes")
+    assert.are.equal("module", passes[1].scope_type, "First pass should be module scope")
+    assert.are.equal("[module]", passes[1].scope_target, "Module target should be [module]")
+    assert.are.equal("function", passes[2].scope_type, "Second pass should be function scope")
+    assert.are.equal("foo", passes[2].scope_target, "Function target should be foo")
+  end)
+
+  it("detects CGSCC passes", function()
+    local output = [[
+; *** IR Dump After InlinerPass on (quicksort) ***
+define void @quicksort() { ret void }
+]]
+
+    local passes = pipeline.parse_pipeline_output(output, "clang")
+
+    assert.are.equal(1, #passes, "Should parse one pass")
+    assert.are.equal("cgscc", passes[1].scope_type, "Should be CGSCC scope")
+    assert.are.equal("quicksort", passes[1].scope_target, "CGSCC target should be quicksort without parens")
+  end)
+
+  it("detects function passes", function()
+    local output = [[
+; *** IR Dump After SROAPass on main ***
+define i32 @main() { ret i32 0 }
+]]
+
+    local passes = pipeline.parse_pipeline_output(output, "clang")
+
+    assert.are.equal(1, #passes, "Should parse one pass")
+    assert.are.equal("function", passes[1].scope_type, "Should be function scope")
+    assert.are.equal("main", passes[1].scope_target, "Function target should be main")
+  end)
+
+  it("handles mixed scope passes correctly", function()
+    local output = [[
+; *** IR Dump After Annotation2MetadataPass on [module] ***
+; ModuleID = 'test.c'
+define void @foo() { ret void }
+define void @bar() { ret void }
+; *** IR Dump After SROAPass on foo ***
+define void @foo() { ret void }
+; *** IR Dump After InstCombinePass on bar ***
+define void @bar() { ret void }
+; *** IR Dump After GlobalDCEPass on [module] ***
+; ModuleID = 'test.c'
+define void @foo() { ret void }
+define void @bar() { ret void }
+]]
+
+    local passes = pipeline.parse_pipeline_output(output, "clang")
+
+    assert.are.equal(4, #passes, "Should parse all four passes")
+
+    -- Check scopes
+    assert.are.equal("module", passes[1].scope_type, "First should be module")
+    assert.are.equal("function", passes[2].scope_type, "Second should be function")
+    assert.are.equal("function", passes[3].scope_type, "Third should be function")
+    assert.are.equal("module", passes[4].scope_type, "Fourth should be module")
+
+    -- Check targets
+    assert.are.equal("[module]", passes[1].scope_target)
+    assert.are.equal("foo", passes[2].scope_target)
+    assert.are.equal("bar", passes[3].scope_target)
+    assert.are.equal("[module]", passes[4].scope_target)
+  end)
+
+  it("correctly cleans module vs function IR", function()
+    local output = [[
+; *** IR Dump After GlobalOptPass on [module] ***
+; ModuleID = 'test.c'
+source_filename = "test.c"
+target datalayout = "e-m:o-i64:64"
+@global = internal constant i32 42
+define void @foo() { ret void }
+define void @bar() { ret void }
+declare void @llvm.foo()
+attributes #0 = { nounwind }
+!0 = !{i32 1}
+; *** IR Dump After SROAPass on foo ***
+define void @foo() { ret void }
+]]
+
+    local passes = pipeline.parse_pipeline_output(output, "clang")
+
+    assert.are.equal(2, #passes)
+
+    -- Module pass should contain globals, functions, etc.
+    local module_ir_text = table.concat(passes[1].ir, "\n")
+    assert.is_true(module_ir_text:match("@global") ~= nil, "Module IR should contain globals")
+    assert.is_true(module_ir_text:match("@foo") ~= nil, "Module IR should contain foo")
+    assert.is_true(module_ir_text:match("@bar") ~= nil, "Module IR should contain bar")
+
+    -- Function pass should contain only the function
+    local func_ir_text = table.concat(passes[2].ir, "\n")
+    assert.is_true(func_ir_text:match("define void @foo") ~= nil, "Function IR should contain foo")
+    assert.is_false(func_ir_text:match("@global") ~= nil, "Function IR should not contain globals")
+    assert.is_false(func_ir_text:match("@bar") ~= nil, "Function IR should not contain bar")
+  end)
+end)
+
+describe("real-world C/C++ file with scope detection", function()
+  it("handles qs.c with mixed module and function passes", function()
+    local test_file = vim.fn.fnamemodify("tests/fixtures/qs.c", ":p")
+
+    if vim.fn.executable("clang") == 0 then
+      pending("clang not installed")
+      return
+    end
+
+    local passes = pipeline.run_pipeline(test_file, "O2")
+
+    if not passes or #passes == 0 then
+      pending("No passes captured from qs.c")
+      return
+    end
+
+    -- Should have both module and function passes
+    local has_module = false
+    local has_function = false
+    local has_cgscc = false
+
+    for _, pass in ipairs(passes) do
+      if pass.scope_type == "module" then
+        has_module = true
+        -- Module pass should contain both functions
+        local ir_text = table.concat(pass.ir, "\n")
+        assert.is_true(ir_text:match("quicksort") ~= nil or ir_text:match("@") ~= nil,
+          "Module pass '" .. pass.name .. "' should contain functions")
+      elseif pass.scope_type == "function" then
+        has_function = true
+        -- Function pass should have a valid target
+        assert.is_not_nil(pass.scope_target, "Function pass should have scope_target")
+      elseif pass.scope_type == "cgscc" then
+        has_cgscc = true
+      end
+    end
+
+    assert.is_true(has_module, "Should have at least one module pass")
+    assert.is_true(has_function or has_cgscc, "Should have at least one function or CGSCC pass")
+  end)
+end)
+

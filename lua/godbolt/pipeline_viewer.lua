@@ -150,7 +150,19 @@ function M.populate_pass_list()
     local marker = (i == M.state.current_index) and ">" or " "
     local name = pass.name
 
-    local line = string.format("%s%2d. %s", marker, i, name)
+    -- Add scope indicator
+    local scope_icon = ""
+    if pass.scope_type == "module" then
+      scope_icon = "[M] "  -- Module pass
+    elseif pass.scope_type == "cgscc" then
+      scope_icon = "[C] "  -- CGSCC pass
+    elseif pass.scope_type == "function" then
+      scope_icon = "[F] "  -- Function pass
+    else
+      scope_icon = "[?] "  -- Unknown scope
+    end
+
+    local line = string.format("%s%2d. %s%s", marker, i, scope_icon, name)
     table.insert(lines, line)
 
     -- Show stats as sub-item if configured
@@ -168,6 +180,7 @@ function M.populate_pass_list()
   end
 
   table.insert(lines, "")
+  table.insert(lines, "Legend: [M]=Module [F]=Function [C]=CGSCC")
   table.insert(lines, "Keys: j/k=nav, Enter=select, q=quit")
 
   vim.api.nvim_buf_set_lines(M.state.pass_list_bufnr, 0, -1, false, lines)
@@ -193,33 +206,57 @@ function M.show_diff(index)
   M.state.current_index = index
 
   local pass = M.state.passes[index]
-  local func_name = extract_function_name(pass.name)
+  local scope_type = pass.scope_type
+  local scope_target = pass.scope_target
 
-  -- Get before IR
+  -- Get before and after IR based on scope type
   local before_ir = {}
   local before_name = ""
+  local after_ir = pass.ir
 
-  if index == 1 then
-    -- First pass overall - need function from input
-    if func_name and M.state.input_file then
-      local input_ir = pipeline.get_stripped_input(M.state.input_file)
-      before_ir = ir_utils.extract_function(input_ir, func_name)
-      before_name = "Input: " .. func_name
+  if scope_type == "module" then
+    -- Module pass: show full module before/after
+    if index == 1 then
+      -- First pass overall: get input module
+      if M.state.input_file then
+        before_ir = pipeline.get_stripped_input(M.state.input_file)
+        before_name = "Input Module"
+      else
+        before_ir = {"", "[ No previous state ]", ""}
+        before_name = "Initial"
+      end
     else
-      before_ir = {"", "[ No previous state ]", ""}
-      before_name = "Initial"
+      -- Find previous module pass
+      local prev_module_idx = nil
+      for i = index - 1, 1, -1 do
+        if M.state.passes[i].scope_type == "module" then
+          prev_module_idx = i
+          break
+        end
+      end
+
+      if prev_module_idx then
+        -- Found previous module pass
+        before_ir = M.state.passes[prev_module_idx].ir
+        before_name = M.state.passes[prev_module_idx].name
+      else
+        -- No previous module pass, use input
+        if M.state.input_file then
+          before_ir = pipeline.get_stripped_input(M.state.input_file)
+          before_name = "Input Module"
+        else
+          before_ir = {"", "[ No previous state ]", ""}
+          before_name = "Initial"
+        end
+      end
     end
-  else
-    -- Check if previous pass was on the same function
-    local prev_pass = M.state.passes[index - 1]
-    local prev_func_name = extract_function_name(prev_pass.name)
 
-    if prev_func_name == func_name then
-      -- Same function, use previous pass
-      before_ir = prev_pass.ir
-      before_name = prev_pass.name
-    else
-      -- Different function, get from input
+  else
+    -- Function or CGSCC pass: show specific function
+    local func_name = scope_target
+
+    if index == 1 then
+      -- First pass overall: get function from input
       if func_name and M.state.input_file then
         local input_ir = pipeline.get_stripped_input(M.state.input_file)
         before_ir = ir_utils.extract_function(input_ir, func_name)
@@ -228,11 +265,29 @@ function M.show_diff(index)
         before_ir = {"", "[ No previous state ]", ""}
         before_name = "Initial"
       end
+    else
+      -- Check previous pass scope
+      local prev_pass = M.state.passes[index - 1]
+      local prev_scope_type = prev_pass.scope_type
+      local prev_func_name = prev_pass.scope_target
+
+      if prev_scope_type ~= "module" and prev_func_name == func_name then
+        -- Same function in previous pass, use it
+        before_ir = prev_pass.ir
+        before_name = prev_pass.name
+      else
+        -- Different function or module pass, get from input
+        if func_name and M.state.input_file then
+          local input_ir = pipeline.get_stripped_input(M.state.input_file)
+          before_ir = ir_utils.extract_function(input_ir, func_name)
+          before_name = "Input: " .. func_name
+        else
+          before_ir = {"", "[ No previous state ]", ""}
+          before_name = "Initial"
+        end
+      end
     end
   end
-
-  -- Get after IR (current pass)
-  local after_ir = pass.ir
 
   -- Update buffers
   vim.api.nvim_buf_set_option(M.state.before_bufnr, 'modifiable', true)

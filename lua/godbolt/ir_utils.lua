@@ -1,9 +1,34 @@
 local M = {}
 
+-- Get full module IR without extracting individual functions
+-- Used for module-scoped passes where we want to see all functions, globals, etc.
+-- @param ir_lines: array of IR lines
+-- @return: array with full module (still removes some comment noise)
+function M.get_full_module(ir_lines)
+  local module_ir = {}
+
+  for _, line in ipairs(ir_lines) do
+    -- Skip comment-only lines but keep everything else
+    -- Keep: functions, globals, declares, attributes, metadata, etc.
+    if not line:match("^%s*;%s*$") then  -- Skip empty comment lines
+      table.insert(module_ir, line)
+    end
+  end
+
+  return module_ir
+end
+
 -- Clean IR by removing metadata and keeping only function definitions
 -- @param ir_lines: array of IR lines
--- @return: cleaned array with only function definitions
-function M.clean_ir(ir_lines)
+-- @param scope_type: (optional) "module", "function", "cgscc", or nil
+-- @return: cleaned array with only function definitions (or full module if scope is "module")
+function M.clean_ir(ir_lines, scope_type)
+  -- For module passes, return the full module
+  if scope_type == "module" then
+    return M.get_full_module(ir_lines)
+  end
+
+  -- For function/cgscc/unknown passes, extract only function definitions
   local cleaned = {}
   local in_function = false
   local brace_count = 0
