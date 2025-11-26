@@ -177,7 +177,11 @@ function M.godbolt(args_str)
 
   -- Add -g LAST to ensure it's not overridden by user flags
   -- This is critical for line mapping to work
-  table.insert(cmd_args, "-g")
+  -- NOTE: Only add -g for compilers (clang, swiftc), NOT for opt (LLVM IR optimizer)
+  -- opt doesn't support -g flag and will error out
+  if not file:match("%.ll$") then
+    table.insert(cmd_args, "-g")
+  end
 
   table.insert(cmd_args, "-o -")
 
