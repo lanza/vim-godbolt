@@ -185,6 +185,82 @@ function M.populate_pass_list()
 
   vim.api.nvim_buf_set_lines(M.state.pass_list_bufnr, 0, -1, false, lines)
   vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', false)
+
+  -- Apply syntax highlighting
+  M.apply_pass_list_highlights()
+end
+
+-- Apply syntax highlighting to the pass list buffer
+function M.apply_pass_list_highlights()
+  local bufnr = M.state.pass_list_bufnr
+  local ns_id = M.state.ns_id
+
+  -- Clear previous highlights
+  vim.api.nvim_buf_clear_namespace(bufnr, ns_id, 0, -1)
+
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+  for line_idx, line in ipairs(lines) do
+    local line_num = line_idx - 1  -- Convert to 0-indexed
+
+    -- Line 1: Header - highlight as Title
+    if line_idx == 1 then
+      vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Title", line_num, 0, -1)
+
+    -- Line 2: Separator - highlight as Comment
+    elseif line_idx == 2 then
+      vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Comment", line_num, 0, -1)
+
+    -- Stats lines (start with spaces and "D:")
+    elseif line:match("^%s+D:") then
+      vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Comment", line_num, 0, -1)
+
+    -- Legend and Keys lines at the end
+    elseif line:match("^Legend:") or line:match("^Keys:") then
+      vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Comment", line_num, 0, -1)
+
+    -- Pass entry lines
+    elseif line:match("^.%s*%d+%.") then
+      local col = 0
+
+      -- Highlight marker (> or space)
+      local marker_end = 1
+      if line:match("^>") then
+        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "WarningMsg", line_num, 0, marker_end)
+      end
+      col = marker_end
+
+      -- Find and highlight pass number
+      local num_start, num_end = line:find("%d+", col)
+      if num_start then
+        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Number", line_num, num_start - 1, num_end)
+        col = num_end
+      end
+
+      -- Find and highlight scope indicator [M], [F], [C]
+      local scope_start, scope_end = line:find("%[%w%]", col)
+      if scope_start then
+        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Type", line_num, scope_start - 1, scope_end)
+        col = scope_end + 1  -- Skip space after scope
+      end
+
+      -- Highlight pass name (everything up to " on ")
+      local on_start = line:find(" on ", col)
+      if on_start then
+        -- Pass name
+        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Identifier", line_num, col, on_start - 1)
+
+        -- Highlight " on " as Special
+        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Special", line_num, on_start - 1, on_start + 3)
+
+        -- Highlight target (everything after "on ")
+        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "String", line_num, on_start + 3, -1)
+      else
+        -- No " on " found, highlight rest as pass name
+        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Identifier", line_num, col, -1)
+      end
+    end
+  end
 end
 
 -- Extract function name from pass name
@@ -346,6 +422,9 @@ function M.update_pass_list_cursor(index)
 
   vim.api.nvim_buf_set_lines(M.state.pass_list_bufnr, 0, -1, false, lines)
   vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', false)
+
+  -- Reapply syntax highlighting after updating markers
+  M.apply_pass_list_highlights()
 
   -- Move cursor to the marked line
   if target_line_num then
