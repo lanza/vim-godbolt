@@ -369,16 +369,34 @@ function M.show_diff(index)
       local prev_func_name = prev_pass.scope_target
 
       if prev_scope_type ~= "module" and prev_func_name == func_name then
-        -- Same function in previous pass, use it
+        -- Same function in previous pass, use it directly
         before_ir = prev_pass.ir
         before_name = prev_pass.name
+      elseif prev_scope_type == "module" then
+        -- Previous pass was module-scoped, extract our function from it
+        before_ir = ir_utils.extract_function(prev_pass.ir, func_name)
+        before_name = prev_pass.name .. " → " .. func_name
       else
-        -- Different function or module pass, get from input
-        if func_name and M.state.input_file then
+        -- Previous pass was different function, look backwards for last module pass
+        local last_module_pass = nil
+        for i = index - 1, 1, -1 do
+          if M.state.passes[i].scope_type == "module" then
+            last_module_pass = M.state.passes[i]
+            break
+          end
+        end
+
+        if last_module_pass then
+          -- Found a module pass, extract our function from it
+          before_ir = ir_utils.extract_function(last_module_pass.ir, func_name)
+          before_name = last_module_pass.name .. " → " .. func_name
+        elseif func_name and M.state.input_file then
+          -- No module pass found, try input file
           local input_ir = pipeline.get_stripped_input(M.state.input_file)
           before_ir = ir_utils.extract_function(input_ir, func_name)
           before_name = "Input: " .. func_name
         else
+          -- No state available
           before_ir = {"", "[ No previous state ]", ""}
           before_name = "Initial"
         end
