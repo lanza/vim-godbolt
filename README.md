@@ -92,10 +92,16 @@ require('godbolt').setup({
   -- Line mapping configuration (Godbolt-style source-to-assembly mapping)
   line_mapping = {
     enabled = true,         -- Enable automatic line mapping
-    auto_scroll = false,    -- Auto-scroll windows when cursor moves (can be distracting)
+    auto_scroll = false,    -- Auto-scroll windows when cursor moves (only scrolls if off-screen)
     throttle_ms = 150,      -- Throttle cursor updates (ms) for performance
     silent_on_failure = false,  -- Show error messages if debug info is missing
     show_compilation_cmd = true,  -- Show compilation command when debug info fails
+  },
+
+  -- Display configuration
+  display = {
+    strip_debug_metadata = true,   -- Hide debug metadata (!123 = !{...}) in LLVM IR
+    annotate_variables = true,     -- Show variable names as comments (e.g., "; %5 = x")
   },
 
   -- Pipeline viewer configuration
@@ -331,6 +337,57 @@ require('godbolt').setup({
 5. Click on line 45 in assembly → line 5 in source is highlighted
 
 **Note:** Line mapping works best with `-O0` (no optimization) for 1:1 correspondence. At higher optimization levels, one source line may map to multiple assembly blocks due to inlining, unrolling, etc.
+
+### Advanced LLVM IR Features
+
+When viewing LLVM IR output (`:Godbolt -emit-llvm`), the plugin provides several advanced features:
+
+**1. Clean IR Display**
+- Debug metadata (`!123 = !{...}`) is hidden by default for readability
+- Full IR with metadata is preserved internally for line mapping
+- Toggle with `display.strip_debug_metadata = false` in config
+
+**2. Column-Level Precision**
+- Highlights the exact column/token in source code (not just the line)
+- Uses column information from `!DILocation` metadata
+- Highlights ~10 characters starting at the precise column
+- Falls back to line highlighting when column info unavailable
+
+**3. Auto-Scroll**
+- Automatically scrolls the opposite pane to show the mapped line
+- Only scrolls when the line is off-screen (not jarring)
+- Centers the target line in the window
+- Enable with `line_mapping.auto_scroll = true`
+- Works bidirectionally (source ↔ IR)
+
+**4. Variable Name Annotations**
+- Shows source variable names next to SSA registers
+- Example: `%5 = alloca i32  ; %5 = x`
+- Parses `!DILocalVariable` metadata and `llvm.dbg.declare` calls
+- Displayed as virtual text comments (non-intrusive)
+- Enable/disable with `display.annotate_variables`
+
+**Example configuration:**
+```lua
+require('godbolt').setup({
+  line_mapping = {
+    auto_scroll = true,  -- Enable auto-scroll
+  },
+  display = {
+    strip_debug_metadata = true,  -- Clean IR display
+    annotate_variables = true,    -- Show variable names
+  },
+})
+```
+
+**Usage:**
+```vim
+:Godbolt -emit-llvm -O2
+
+" Move cursor in source → IR window scrolls and highlights exact column
+" Move cursor in IR → source window scrolls and highlights
+" Variable names appear as comments in IR
+```
 
 ### LLVM Optimization Pipeline Viewer
 
