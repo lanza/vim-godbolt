@@ -690,16 +690,7 @@ function M.next_pass()
     end
   end
 
-  -- No changed pass found ahead, wrap to first changed pass
-  for i = 1, M.state.current_index do
-    if M.state.passes[i].changed then
-      M.show_diff(i)
-      return
-    end
-  end
-
-  -- No changed passes at all (unlikely), just go to next
-  M.show_diff(M.state.current_index + 1)
+  -- No changed pass found ahead, stop at the end (don't wrap)
 end
 
 -- Navigate to previous pass (skips unchanged passes)
@@ -716,16 +707,7 @@ function M.prev_pass()
     end
   end
 
-  -- No changed pass found before, wrap to last changed pass
-  for i = #M.state.passes, M.state.current_index, -1 do
-    if M.state.passes[i].changed then
-      M.show_diff(i)
-      return
-    end
-  end
-
-  -- No changed passes at all (unlikely), just go to previous
-  M.show_diff(M.state.current_index - 1)
+  -- No changed pass found before, stop at the beginning (don't wrap)
 end
 
 -- Navigate to first changed pass
