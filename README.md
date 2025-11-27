@@ -9,6 +9,8 @@ A powerful Neovim plugin that brings Compiler Explorer (godbolt.org) functionali
 - **Multi-format output**: Assembly, LLVM IR, ClangIR, AST dumps, and object files
 - **Bidirectional line mapping**: Click on source code to highlight corresponding assembly/IR, and vice versa
 - **LLVM pipeline viewer**: Step through optimization passes for both C/C++ files and LLVM IR
+- **Link-Time Optimization (LTO)**: Compile and link multiple files with whole-program optimization
+- **LTO pipeline visualization**: Watch cross-module optimizations in action (70+ passes)
 - **Multi-language support**: C, C++, Swift, and LLVM IR
 - **Per-file compiler arguments**: Use comments to specify flags per file
 - **Automatic output detection**: Intelligently detects output type from compiler flags
@@ -30,6 +32,10 @@ A powerful Neovim plugin that brings Compiler Explorer (godbolt.org) functionali
 
 -- 3. To see LLVM optimization passes (C/C++ files):
 :GodboltPipeline O2
+
+-- 4. For multi-file Link-Time Optimization:
+:GodboltLTO main.c utils.c
+:GodboltLTOPipeline main.c utils.c -O2
 
 -- Or for .ll files with custom passes:
 :!clang -S -emit-llvm -O0 -Xclang -disable-O0-optnone % -o %:r.ll
@@ -193,6 +199,144 @@ In the pass list pane:
 In the before/after panes:
 - `]p` / `[p` or `Tab` / `Shift-Tab` - Next/Previous pass
 - Standard diff commands (`]c`, `[c` for next/previous diff)
+
+### Link-Time Optimization (LTO)
+
+**`:GodboltLTO file1.c file2.c [file3.c ...]`**
+
+Compiles and links multiple source files with Link-Time Optimization (LTO), displaying the unified LLVM IR with cross-module optimizations applied.
+
+**What is LTO?**
+
+Link-Time Optimization enables whole-program optimization across multiple source files:
+- **Cross-module inlining**: Functions from one file can be inlined into another
+- **Global dead code elimination**: Unused functions across all files are removed
+- **Interprocedural optimization**: Optimizations that span function and file boundaries
+
+**Examples:**
+
+```vim
+" Compile two files with LTO
+:GodboltLTO main.c utils.c
+
+" Compile multiple files
+:GodboltLTO src/main.c src/helpers.c src/math.c
+
+" Mix C and C++ (auto-detected from file extension)
+:GodboltLTO main.cpp utils.cpp
+```
+
+**What you'll see:**
+- Functions from `utils.c` inlined into `main.c`
+- Unused helper functions completely eliminated
+- Constants propagated across files
+- The unified LLVM IR after all link-time optimizations
+
+**`:GodboltLTOPipeline file1.c file2.c [file3.c ...] [-O2]`**
+
+Visualizes the LLVM optimization passes that run during link-time optimization. Shows how the linker transforms your code across multiple files.
+
+**Examples:**
+
+```vim
+" View LTO passes with O2 optimization
+:GodboltLTOPipeline main.c utils.c -O2
+
+" View with O3 optimization
+:GodboltLTOPipeline main.c utils.c -O3
+
+" View with O0 (minimal optimization)
+:GodboltLTOPipeline main.c utils.c -O0
+```
+
+**What you'll see:**
+- 70+ optimization pass stages during link-time
+- Cross-module inlining decisions
+- Dead code elimination across files
+- Constant propagation between modules
+- Same 3-pane viewer as `:GodboltPipeline`
+- Before/after IR for each pass with diff highlighting
+
+**Navigation:**
+- All standard pipeline navigation commands work:
+  - `:NextPass` / `:PrevPass`
+  - `]p` / `[p` keybindings
+  - `:GotoPass [N]`
+  - `j`/`k` in pass list pane
+
+**Real-World Example:**
+
+Given these files:
+
+`main.c`:
+```c
+int add(int a, int b);      // Defined in utils.c
+int multiply(int a, int b); // Defined in utils.c
+int square(int x);          // Defined in utils.c
+
+int compute(int x, int y) {
+  return add(x, y) + multiply(x, y) + square(x);
+}
+
+int main() {
+  return compute(5, 3);
+}
+```
+
+`utils.c`:
+```c
+int add(int a, int b) { return a + b; }
+int multiply(int a, int b) { return a * b; }
+int square(int x) { return multiply(x, x); }
+```
+
+**Without LTO** (separate compilation):
+```vim
+:Godbolt main.c
+" You see: Calls to external functions add(), multiply(), square()
+```
+
+**With LTO**:
+```vim
+:GodboltLTO main.c utils.c
+" You see: All functions inlined, computation may be constant-folded
+" The IR might show main() just returns a constant!
+```
+
+**View the optimization process**:
+```vim
+:GodboltLTOPipeline main.c utils.c -O2
+" Navigate through passes to see:
+" 1. Initial merged module with all functions
+" 2. InlinerPass: add() gets inlined into compute()
+" 3. InlinerPass: multiply() gets inlined into square() and compute()
+" 4. InlinerPass: square() gets inlined into compute()
+" 5. ConstantPropagation: compute(5, 3) becomes constant
+" 6. GlobalDCE: Unused functions eliminated
+" 7. Final result: main() { return 43; }
+```
+
+**Configuration:**
+
+```lua
+require('godbolt').setup({
+  -- ... other config ...
+
+  lto = {
+    enabled = true,           -- Enable LTO support
+    linker = "ld.lld",       -- Linker to use (ld.lld recommended)
+    keep_temps = false,       -- Keep temporary object files for inspection
+    save_temps = true,        -- Save intermediate compilation files
+  },
+})
+```
+
+**Requirements:**
+- `clang` / `clang++` (for compilation)
+- `ld.lld` (LLVM linker)
+- `llvm-dis` (for converting bitcode to readable IR)
+
+These tools are typically included with your LLVM installation.
 
 ### Utility Commands
 
