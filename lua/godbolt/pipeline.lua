@@ -50,32 +50,41 @@ end
 --   scope_type: "module" | "function" | "cgscc" | "unknown"
 --   scope_target: "[module]" | "quicksort" | "quicksort" (CGSCC without parens)
 local function parse_pass_header(pass_line)
+  -- Try "After" pattern first
   local pass_info = pass_line:match("^; %*%*%* IR Dump After (.-)%s+%*%*%*$")
+  local is_before = false
+
   if not pass_info then
-    return nil, nil, nil
+    -- Try "Before" pattern
+    pass_info = pass_line:match("^; %*%*%* IR Dump Before (.-)%s+%*%*%*$")
+    is_before = true
+  end
+
+  if not pass_info then
+    return nil, nil, nil, nil
   end
 
   -- Check for module pass: "PassName on [module]"
   local pass_name, module_marker = pass_info:match("^(.+) on (%[module%])$")
   if module_marker then
-    return pass_name, "module", module_marker
+    return pass_name, "module", module_marker, is_before
   end
 
   -- Check for CGSCC pass: "PassName on (func)"
   -- Extract the function name from inside parentheses
   local pass_name_cgscc, cgscc_content = pass_info:match("^(.+) on %((.+)%)$")
   if cgscc_content then
-    return pass_name_cgscc, "cgscc", cgscc_content
+    return pass_name_cgscc, "cgscc", cgscc_content, is_before
   end
 
   -- Check for function pass: "PassName on func"
   local pass_name_func, func_name = pass_info:match("^(.+) on (.+)$")
   if func_name then
-    return pass_name_func, "function", func_name
+    return pass_name_func, "function", func_name, is_before
   end
 
   -- Pass without scope (shouldn't happen with -print-after-all, but handle gracefully)
-  return pass_info, "unknown", nil
+  return pass_info, "unknown", nil, is_before
 end
 
 -- Run optimization pipeline and capture intermediate IR at each pass
@@ -138,8 +147,8 @@ run_opt_pipeline = function(input_file, passes_str)
     return nil
   end
 
-  -- Parse the pipeline output to get passes
-  local passes = M.parse_pipeline_output(output)
+  -- Parse the pipeline output to get passes (ignore initial_ir for .ll files)
+  local passes, _ = M.parse_pipeline_output(output)
 
   -- Don't prepend Input - let the viewer handle the initial state per-function
   return passes
@@ -173,10 +182,11 @@ run_clang_pipeline = function(input_file, passes_str, lang_args)
   -- Determine compiler (clang or clang++)
   local compiler = input_file:match("%.cpp$") and "clang++" or "clang"
 
-  -- Build command: clang -mllvm -print-after-all <opt-level> <args> -S -emit-llvm -o /dev/null file.c
+  -- Build command: clang -mllvm -print-after-all -mllvm -print-before-pass-number=1 <opt-level> <args> -S -emit-llvm -o /dev/null file.c
   local cmd_parts = {
     compiler,
     "-mllvm", "-print-after-all",
+    "-mllvm", "-print-before-pass-number=1",
     opt_level,
   }
 
@@ -235,8 +245,22 @@ run_clang_pipeline = function(input_file, passes_str, lang_args)
     return nil
   end
 
-  -- Parse the pipeline output to get passes
-  local passes = M.parse_pipeline_output(output, "clang")
+  -- Parse the pipeline output to get passes and initial IR
+  local passes, initial_ir = M.parse_pipeline_output(output, "clang")
+
+  -- Cache initial IR if we got one (for get_stripped_input to use)
+  if initial_ir then
+    M._cached_initial_ir = {
+      file = input_file,
+      ir = initial_ir
+    }
+    if M.debug then
+      print(string.format("[Pipeline Debug] Cached initial IR for %s (%d lines)", input_file, #initial_ir))
+    end
+  else
+    -- Clear cache if no initial IR
+    M._cached_initial_ir = nil
+  end
 
   return passes
 end
@@ -244,15 +268,18 @@ end
 -- Parse pipeline output into pass stages
 -- @param output: raw output from opt/clang command
 -- @param source_type: "opt" or "clang" (default "opt")
--- @return: array of {name, scope_type, scope_target, ir, stats} tables
+-- @return: passes array, initial_ir (or nil if not found)
 function M.parse_pipeline_output(output, source_type)
   source_type = source_type or "opt"
 
   local passes = {}
+  local initial_ir = nil
+  local initial_scope_type = nil
   local current_pass = nil
   local current_scope_type = nil
   local current_scope_target = nil
   local current_ir = {}
+  local current_is_before = false
   local line_count = 0
   local pass_boundary_count = 0
   local seen_module_id = false
@@ -261,32 +288,48 @@ function M.parse_pipeline_output(output, source_type)
     line_count = line_count + 1
 
     -- Try to parse pass header to extract scope information
-    local pass_name, scope_type, scope_target = parse_pass_header(line)
+    local pass_name, scope_type, scope_target, is_before = parse_pass_header(line)
 
     if pass_name then
       pass_boundary_count = pass_boundary_count + 1
 
       if M.debug then
-        print(string.format("[Pipeline Debug] Found pass boundary at line %d: '%s' (scope: %s, target: %s)",
-          line_count, pass_name, scope_type or "none", scope_target or "none"))
+        print(string.format("[Pipeline Debug] Found %s boundary at line %d: '%s' (scope: %s, target: %s)",
+          is_before and "Before" or "After", line_count, pass_name, scope_type or "none", scope_target or "none"))
       end
 
-      -- Save previous pass if exists
+      -- Save previous pass/before dump if exists
       if current_pass and #current_ir > 0 then
-        -- Validate it's LLVM IR before saving (filter out MIR, assembly, etc.)
-        if is_llvm_ir(current_ir) or #current_ir == 0 then
-          table.insert(passes, {
-            name = current_pass,
-            scope_type = current_scope_type,
-            scope_target = current_scope_target,
-            ir = ir_utils.clean_ir(current_ir, current_scope_type),
-          })
-          if M.debug then
-            print(string.format("[Pipeline Debug] Saved pass '%s' with %d IR lines", current_pass, #current_ir))
+        if current_is_before then
+          -- This is a "Before" dump - save as initial IR
+          if scope_type == "module" then
+            initial_ir = ir_utils.clean_ir(current_ir, scope_type)
+            initial_scope_type = scope_type
+            if M.debug then
+              print(string.format("[Pipeline Debug] Saved initial IR (module-scoped) with %d lines", #current_ir))
+            end
+          else
+            if M.debug then
+              print(string.format("[Pipeline Debug] Skipped Before dump (not module-scoped: %s)", scope_type or "none"))
+            end
           end
         else
-          if M.debug then
-            print(string.format("[Pipeline Debug] Skipped pass '%s' - not LLVM IR (likely MIR or assembly)", current_pass))
+          -- This is an "After" dump - save as pass
+          -- Validate it's LLVM IR before saving (filter out MIR, assembly, etc.)
+          if is_llvm_ir(current_ir) or #current_ir == 0 then
+            table.insert(passes, {
+              name = current_pass,
+              scope_type = current_scope_type,
+              scope_target = current_scope_target,
+              ir = ir_utils.clean_ir(current_ir, current_scope_type),
+            })
+            if M.debug then
+              print(string.format("[Pipeline Debug] Saved pass '%s' with %d IR lines", current_pass, #current_ir))
+            end
+          else
+            if M.debug then
+              print(string.format("[Pipeline Debug] Skipped pass '%s' - not LLVM IR (likely MIR or assembly)", current_pass))
+            end
           end
         end
       end
@@ -302,6 +345,7 @@ function M.parse_pipeline_output(output, source_type)
       end
       current_scope_type = scope_type
       current_scope_target = scope_target
+      current_is_before = is_before
       current_ir = {}
       seen_module_id = false
 
@@ -343,19 +387,31 @@ function M.parse_pipeline_output(output, source_type)
 
   -- Save last pass if we didn't hit the final output marker
   if current_pass and #current_ir > 0 and #passes == pass_boundary_count - 1 then
-    if is_llvm_ir(current_ir) or #current_ir == 0 then
-      table.insert(passes, {
-        name = current_pass,
-        scope_type = current_scope_type,
-        scope_target = current_scope_target,
-        ir = ir_utils.clean_ir(current_ir, current_scope_type),
-      })
-      if M.debug then
-        print(string.format("[Pipeline Debug] Saved final pass '%s' with %d IR lines", current_pass, #current_ir))
+    if current_is_before then
+      -- Last dump was a "Before" dump - save as initial IR
+      if current_scope_type == "module" then
+        initial_ir = ir_utils.clean_ir(current_ir, current_scope_type)
+        initial_scope_type = current_scope_type
+        if M.debug then
+          print(string.format("[Pipeline Debug] Saved final Before dump as initial IR (module-scoped) with %d lines", #current_ir))
+        end
       end
     else
-      if M.debug then
-        print(string.format("[Pipeline Debug] Skipped final pass '%s' - not LLVM IR (likely MIR or assembly)", current_pass))
+      -- Last dump was an "After" dump - save as pass
+      if is_llvm_ir(current_ir) or #current_ir == 0 then
+        table.insert(passes, {
+          name = current_pass,
+          scope_type = current_scope_type,
+          scope_target = current_scope_target,
+          ir = ir_utils.clean_ir(current_ir, current_scope_type),
+        })
+        if M.debug then
+          print(string.format("[Pipeline Debug] Saved final pass '%s' with %d IR lines", current_pass, #current_ir))
+        end
+      else
+        if M.debug then
+          print(string.format("[Pipeline Debug] Skipped final pass '%s' - not LLVM IR (likely MIR or assembly)", current_pass))
+        end
       end
     end
   end
@@ -365,13 +421,14 @@ function M.parse_pipeline_output(output, source_type)
     print(string.format("  Total lines processed: %d", line_count))
     print(string.format("  Pass boundaries found: %d", pass_boundary_count))
     print(string.format("  Passes captured: %d", #passes))
+    print(string.format("  Initial IR captured: %s", initial_ir and "yes" or "no"))
     if #passes > 0 then
       print(string.format("  First pass: '%s'", passes[1].name))
       print(string.format("  Last pass: '%s'", passes[#passes].name))
     end
   end
 
-  return passes
+  return passes, initial_ir
 end
 
 -- Get predefined O-level pipeline string
@@ -428,12 +485,26 @@ end
 
 -- Get stripped input IR
 -- For .ll files: runs opt --strip-debug
--- For .c/.cpp files: compiles to LLVM IR with -O0
+-- For .c/.cpp files: uses cached initial IR if available, otherwise compiles to LLVM IR with -O0
 -- @param input_file: path to .ll, .c, or .cpp file
 -- @return: array of IR lines with debug info removed
 function M.get_stripped_input(input_file)
-  -- Handle C/C++ files by compiling to LLVM IR first
+  -- Handle C/C++ files by checking cache first, then compiling to LLVM IR
   if input_file:match("%.c$") or input_file:match("%.cpp$") then
+    -- Check if we have cached initial IR from -print-before-pass-number=1
+    if M._cached_initial_ir and M._cached_initial_ir.file == input_file then
+      if M.debug then
+        print(string.format("[Pipeline Debug] Using cached initial IR for %s (%d lines)",
+          input_file, #M._cached_initial_ir.ir))
+      end
+      return M._cached_initial_ir.ir
+    end
+
+    -- No cache, compile with -O0 as fallback
+    if M.debug then
+      print("[Pipeline Debug] No cached initial IR, compiling with -O0")
+    end
+
     local compiler = input_file:match("%.cpp$") and "clang++" or "clang"
     local godbolt = require('godbolt')
     local lang_args = input_file:match("%.cpp$") and
