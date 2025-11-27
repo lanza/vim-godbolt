@@ -519,12 +519,32 @@ function M.setup_keymaps()
     desc = 'Previous pass'
   })
 
+  vim.keymap.set('n', '<Tab>', function() M.next_pass() end, {
+    buffer = M.state.before_bufnr,
+    desc = 'Next pass'
+  })
+
+  vim.keymap.set('n', '<S-Tab>', function() M.prev_pass() end, {
+    buffer = M.state.before_bufnr,
+    desc = 'Previous pass'
+  })
+
   vim.keymap.set('n', ']p', function() M.next_pass() end, {
     buffer = M.state.after_bufnr,
     desc = 'Next pass'
   })
 
   vim.keymap.set('n', '[p', function() M.prev_pass() end, {
+    buffer = M.state.after_bufnr,
+    desc = 'Previous pass'
+  })
+
+  vim.keymap.set('n', '<Tab>', function() M.next_pass() end, {
+    buffer = M.state.after_bufnr,
+    desc = 'Next pass'
+  })
+
+  vim.keymap.set('n', '<S-Tab>', function() M.prev_pass() end, {
     buffer = M.state.after_bufnr,
     desc = 'Previous pass'
   })

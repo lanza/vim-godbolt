@@ -195,8 +195,7 @@ In the pass list pane:
 - `g]` - Jump to last pass
 
 In the before/after panes:
-- `]p` - Next pass
-- `[p` - Previous pass
+- `]p` / `[p` or `Tab` / `Shift-Tab` - Next/Previous pass
 - Standard diff commands (`]c`, `[c` for next/previous diff)
 
 ### Utility Commands
