@@ -181,7 +181,7 @@ function M.populate_pass_list()
 
   table.insert(lines, "")
   table.insert(lines, "Legend: [M]=Module [F]=Function [C]=CGSCC")
-  table.insert(lines, "Keys: j/k=nav, Enter=select, q=quit")
+  table.insert(lines, "Keys: j/k/Tab/S-Tab=nav, Enter=select, q=quit")
 
   vim.api.nvim_buf_set_lines(M.state.pass_list_bufnr, 0, -1, false, lines)
   vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', false)
@@ -469,6 +469,16 @@ function M.setup_keymaps()
   })
 
   vim.keymap.set('n', '<Up>', goto_prev_pass_line, {
+    buffer = bufnr,
+    desc = 'Previous pass'
+  })
+
+  vim.keymap.set('n', '<Tab>', goto_next_pass_line, {
+    buffer = bufnr,
+    desc = 'Next pass'
+  })
+
+  vim.keymap.set('n', '<S-Tab>', goto_prev_pass_line, {
     buffer = bufnr,
     desc = 'Previous pass'
   })

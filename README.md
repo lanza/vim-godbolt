@@ -188,7 +188,7 @@ Module passes show the full module before/after, while function passes show only
 **Keybindings in Pipeline Viewer:**
 
 In the pass list pane:
-- `j`/`k` or `↓`/`↑` - Navigate between passes
+- `j`/`k`, `↓`/`↑`, or `Tab`/`Shift-Tab` - Navigate between passes
 - `Enter` - Select and view the pass under cursor
 - `q` - Quit the pipeline viewer
 - `g[` - Jump to first pass
