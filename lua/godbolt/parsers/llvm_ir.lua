@@ -28,27 +28,67 @@ function M.parse(ir_lines)
     if not line:match("^!") and not line:match("^attributes") and not line:match("^source_filename")
        and not line:match("^target") and not line:match("^; ") then
 
-      -- Look for !dbg reference
-      -- Examples: "!dbg !21" or ", !dbg !34"
-      local dbg_ref = line:match("!dbg%s+!(%d+)")
+      -- Check if this is a #dbg_declare or #dbg_value intrinsic
+      -- Examples:
+      --   #dbg_declare(ptr %arr.addr, !23, !DIExpression(), !24)
+      --   #dbg_value(i32 %10, !26, !DIExpression(), !47)
+      -- The last !XX is the location reference
+      if line:match("^%s*#dbg_") then
+        -- Find all !number references and take the last one (the location)
+        local refs = {}
+        for ref in line:gmatch("!(%d+)") do
+          table.insert(refs, ref)
+        end
 
-      if dbg_ref then
-        local meta = metadata[tonumber(dbg_ref)]
-        if meta and meta.line then
-          local src_line = meta.line
-          local src_col = meta.column
+        if #refs > 0 then
+          local dbg_intrinsic_ref = refs[#refs]
+          -- This is a debug intrinsic - apply its location to the PREVIOUS instruction
+          -- since these intrinsics typically annotate the preceding alloca/store
+          local meta = metadata[tonumber(dbg_intrinsic_ref)]
+          if meta and meta.line and ir_line_num > 1 then
+            local prev_line = ir_line_num - 1
+            local src_line = meta.line
+            local src_col = meta.column
 
-          -- Forward mapping: add this IR line to source line's list
-          if not src_to_ir[src_line] then
-            src_to_ir[src_line] = {}
+            -- Only set mapping if previous line doesn't already have one
+            if not ir_to_src[prev_line] then
+              -- Forward mapping
+              if not src_to_ir[src_line] then
+                src_to_ir[src_line] = {}
+              end
+              table.insert(src_to_ir[src_line], prev_line)
+
+              -- Reverse mapping with column info
+              ir_to_src[prev_line] = {
+                line = src_line,
+                column = src_col
+              }
+            end
           end
-          table.insert(src_to_ir[src_line], ir_line_num)
+        end
+      else
+        -- Look for regular !dbg reference in instruction lines
+        -- Examples: "!dbg !21" or ", !dbg !34"
+        local dbg_ref = line:match("!dbg%s+!(%d+)")
 
-          -- Reverse mapping with column info
-          ir_to_src[ir_line_num] = {
-            line = src_line,
-            column = src_col
-          }
+        if dbg_ref then
+          local meta = metadata[tonumber(dbg_ref)]
+          if meta and meta.line then
+            local src_line = meta.line
+            local src_col = meta.column
+
+            -- Forward mapping: add this IR line to source line's list
+            if not src_to_ir[src_line] then
+              src_to_ir[src_line] = {}
+            end
+            table.insert(src_to_ir[src_line], ir_line_num)
+
+            -- Reverse mapping with column info
+            ir_to_src[ir_line_num] = {
+              line = src_line,
+              column = src_col
+            }
+          end
         end
       end
     end
