@@ -375,15 +375,7 @@ function M.godbolt_pipeline(args_str)
     end
   end
 
-  -- Display appropriate message based on file type
-  if file:match("%.ll$") then
-    print(string.format("[Pipeline] Running: opt -passes=\"%s\"", passes_to_run))
-  else
-    local compiler = file:match("%.cpp$") and "clang++" or "clang"
-    print(string.format("[Pipeline] Running: %s %s -mllvm -print-after-all", compiler, passes_to_run))
-  end
-
-  -- Run the pipeline
+  -- Run the pipeline (exact command will be printed by run_pipeline)
   local passes = pipeline.run_pipeline(file, passes_to_run)
 
   if not passes then

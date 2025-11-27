@@ -109,9 +109,12 @@ run_opt_pipeline = function(input_file, passes_str)
     input_file
   )
 
+  -- Always print exact command for debugging
+  print("[Pipeline] Running command:")
+  print("  " .. cmd)
+
   if M.debug then
-    print("[Pipeline Debug] Running command:")
-    print("  " .. cmd)
+    print("[Pipeline Debug] Command details logged above")
   end
 
   -- Execute command and capture output
@@ -202,9 +205,12 @@ run_clang_pipeline = function(input_file, passes_str, lang_args)
   -- Redirect stderr to stdout to capture -print-after-all output
   local cmd = table.concat(cmd_parts, " ") .. " 2>&1"
 
+  -- Always print exact command for debugging
+  print("[Pipeline] Running command:")
+  print("  " .. cmd)
+
   if M.debug then
-    print("[Pipeline Debug] Running clang command:")
-    print("  " .. cmd)
+    print("[Pipeline Debug] Command details logged above")
   end
 
   -- Execute command and capture output
