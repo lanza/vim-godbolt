@@ -280,6 +280,7 @@ function M.parse_pipeline_output(output, source_type)
   local current_scope_target = nil
   local current_ir = {}
   local current_is_before = false
+  local current_before_ir = nil  -- Store before IR for the current pass
   local line_count = 0
   local pass_boundary_count = 0
   local seen_module_id = false
@@ -301,20 +302,23 @@ function M.parse_pipeline_output(output, source_type)
       -- Save previous pass/before dump if exists
       if current_pass and #current_ir > 0 then
         if current_is_before then
-          -- This is a "Before" dump - save as initial IR
-          if scope_type == "module" then
-            initial_ir = ir_utils.clean_ir(current_ir, scope_type)
+          -- This is a "Before" dump - save it for pairing with the "After" dump
+          current_before_ir = ir_utils.clean_ir(current_ir, current_scope_type)
+
+          -- Also save as initial IR if it's the first module-scoped before dump
+          if not initial_ir and scope_type == "module" then
+            initial_ir = current_before_ir
             initial_scope_type = scope_type
             if M.debug then
               print(string.format("[Pipeline Debug] Saved initial IR (module-scoped) with %d lines", #current_ir))
             end
-          else
-            if M.debug then
-              print(string.format("[Pipeline Debug] Skipped Before dump (not module-scoped: %s)", scope_type or "none"))
-            end
+          end
+
+          if M.debug then
+            print(string.format("[Pipeline Debug] Saved Before IR for pairing with %d lines", #current_ir))
           end
         else
-          -- This is an "After" dump - save as pass
+          -- This is an "After" dump - save as pass with before_ir if available
           -- Validate it's LLVM IR before saving (filter out MIR, assembly, etc.)
           if is_llvm_ir(current_ir) or #current_ir == 0 then
             table.insert(passes, {
@@ -322,14 +326,18 @@ function M.parse_pipeline_output(output, source_type)
               scope_type = current_scope_type,
               scope_target = current_scope_target,
               ir = ir_utils.clean_ir(current_ir, current_scope_type),
+              before_ir = current_before_ir,  -- Attach the before IR
             })
             if M.debug then
-              print(string.format("[Pipeline Debug] Saved pass '%s' with %d IR lines", current_pass, #current_ir))
+              local before_info = current_before_ir and string.format(" (with before: %d lines)", #current_before_ir) or ""
+              print(string.format("[Pipeline Debug] Saved pass '%s' with %d IR lines%s", current_pass, #current_ir, before_info))
             end
+            current_before_ir = nil  -- Clear for next pass
           else
             if M.debug then
               print(string.format("[Pipeline Debug] Skipped pass '%s' - not LLVM IR (likely MIR or assembly)", current_pass))
             end
+            current_before_ir = nil  -- Clear even if skipped
           end
         end
       end

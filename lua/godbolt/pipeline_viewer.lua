@@ -351,8 +351,16 @@ function M.compute_pass_changes()
   local pipeline = require('godbolt.pipeline')
 
   for index, pass in ipairs(M.state.passes) do
-    -- Get before IR using same logic as show_diff
-    local before_ir = M.get_before_ir_for_pass(index)
+    -- Get before IR - use stored before_ir if available, otherwise reconstruct
+    local before_ir
+    if pass.before_ir then
+      -- We have the actual before IR from -print-before-all
+      before_ir = pass.before_ir
+    else
+      -- Fallback to reconstruction (for backwards compatibility)
+      before_ir = M.get_before_ir_for_pass(index)
+    end
+
     local after_ir = pass.ir
 
     -- Apply same filtering as display

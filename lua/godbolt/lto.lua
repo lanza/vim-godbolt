@@ -248,9 +248,10 @@ function M.run_lto_pipeline(source_files, opt_level, extra_args)
 
   -- Build command: Actually link with LTO to capture link-time passes
   -- Key: We must actually perform linking for LTO passes to run
-  -- -Wl,-mllvm,-print-after-all passes -mllvm -print-after-all to lld's optimizer
+  -- -Wl,-mllvm,-print-after-all: Print IR after each pass
+  -- -Wl,-mllvm,-print-before-all: Print IR before each pass (needed for accurate diff attribution)
   local cmd = string.format(
-    '%s -flto %s %s -Wl,-mllvm,-print-after-all -Wl,-mllvm,-print-before-pass-number=1 %s -o "%s" 2>&1',
+    '%s -flto %s %s -Wl,-mllvm,-print-after-all -Wl,-mllvm,-print-before-all %s -o "%s" 2>&1',
     compiler,
     opt_level,
     extra_args,
