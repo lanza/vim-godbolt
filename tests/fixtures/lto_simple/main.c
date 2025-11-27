@@ -13,6 +13,6 @@ int compute(int x, int y) {
   return sum + product + sq;
 }
 
-int main() {
-  return compute(5, 3);
+int main(int argc, char **argv) {
+  return compute(argc, (long)argv[0]);
 }

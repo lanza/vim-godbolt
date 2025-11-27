@@ -54,6 +54,10 @@ function M.setup(source_bufnr, input_file, passes, config)
   M.state.input_file = input_file
   M.state.config = config
 
+  -- Pre-compute which passes actually changed IR
+  -- This allows us to gray out no-op passes in the list
+  M.compute_pass_changes()
+
   -- Start at first pass
   M.state.current_index = config.start_at_final and #passes or 1
 
@@ -190,12 +194,33 @@ function M.populate_pass_list()
       if prev_stats then
         local delta = stats.delta(prev_stats, pass.stats)
 
-        -- Only show if there were changes
-        if delta.instructions ~= 0 or delta.basic_blocks ~= 0 then
-          local stats_line = string.format("     D: Insts %+d, BBs %+d",
-            delta.instructions, delta.basic_blocks)
+        -- Build stats line with inst/BB deltas and diff line count
+        local stats_parts = {}
+
+        -- Instruction delta
+        if delta.instructions ~= 0 then
+          table.insert(stats_parts, string.format("Insts %+d", delta.instructions))
+        end
+
+        -- Basic block delta
+        if delta.basic_blocks ~= 0 then
+          table.insert(stats_parts, string.format("BBs %+d", delta.basic_blocks))
+        end
+
+        -- Diff line count (always show if pass changed anything)
+        if pass.changed and pass.diff_stats.lines_changed > 0 then
+          table.insert(stats_parts, string.format("Δ%d lines", pass.diff_stats.lines_changed))
+        end
+
+        -- Only show stats line if there's something to show
+        if #stats_parts > 0 then
+          local stats_line = "     D: " .. table.concat(stats_parts, ", ")
           table.insert(lines, stats_line)
         end
+      elseif pass.changed and pass.diff_stats.lines_changed > 0 then
+        -- No prev_stats, but pass changed - show just diff count
+        local stats_line = string.format("     D: Δ%d lines", pass.diff_stats.lines_changed)
+        table.insert(lines, stats_line)
       end
     end
   end
@@ -242,43 +267,53 @@ function M.apply_pass_list_highlights()
 
     -- Pass entry lines
     elseif line:match("^.%s*%d+%.") then
-      local col = 0
+      -- Extract pass number to check if it changed
+      local pass_num = tonumber(line:match("^.%s*(%d+)%."))
+      local pass = pass_num and M.state.passes[pass_num]
 
-      -- Highlight marker (> or space)
-      local marker_end = 1
-      if line:match("^>") then
-        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "WarningMsg", line_num, 0, marker_end)
-      end
-      col = marker_end
-
-      -- Find and highlight pass number
-      local num_start, num_end = line:find("%d+", col)
-      if num_start then
-        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Number", line_num, num_start - 1, num_end)
-        col = num_end
-      end
-
-      -- Find and highlight scope indicator [M], [F], [C]
-      local scope_start, scope_end = line:find("%[%w%]", col)
-      if scope_start then
-        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Type", line_num, scope_start - 1, scope_end)
-        col = scope_end + 1  -- Skip space after scope
-      end
-
-      -- Highlight pass name (everything up to " on ")
-      local on_start = line:find(" on ", col)
-      if on_start then
-        -- Pass name
-        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Identifier", line_num, col, on_start - 1)
-
-        -- Highlight " on " as Special
-        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Special", line_num, on_start - 1, on_start + 3)
-
-        -- Highlight target (everything after "on ")
-        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "String", line_num, on_start + 3, -1)
+      -- If pass didn't change, gray out entire line
+      if pass and not pass.changed then
+        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Comment", line_num, 0, -1)
       else
-        -- No " on " found, highlight rest as pass name
-        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Identifier", line_num, col, -1)
+        -- Normal highlighting for passes that changed
+        local col = 0
+
+        -- Highlight marker (> or space)
+        local marker_end = 1
+        if line:match("^>") then
+          vim.api.nvim_buf_add_highlight(bufnr, ns_id, "WarningMsg", line_num, 0, marker_end)
+        end
+        col = marker_end
+
+        -- Find and highlight pass number
+        local num_start, num_end = line:find("%d+", col)
+        if num_start then
+          vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Number", line_num, num_start - 1, num_end)
+          col = num_end
+        end
+
+        -- Find and highlight scope indicator [M], [F], [C]
+        local scope_start, scope_end = line:find("%[%w%]", col)
+        if scope_start then
+          vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Type", line_num, scope_start - 1, scope_end)
+          col = scope_end + 1  -- Skip space after scope
+        end
+
+        -- Highlight pass name (everything up to " on ")
+        local on_start = line:find(" on ", col)
+        if on_start then
+          -- Pass name
+          vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Identifier", line_num, col, on_start - 1)
+
+          -- Highlight " on " as Special
+          vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Special", line_num, on_start - 1, on_start + 3)
+
+          -- Highlight target (everything after "on ")
+          vim.api.nvim_buf_add_highlight(bufnr, ns_id, "String", line_num, on_start + 3, -1)
+        else
+          -- No " on " found, highlight rest as pass name
+          vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Identifier", line_num, col, -1)
+        end
       end
     end
   end
@@ -289,6 +324,119 @@ end
 -- @return: function name (e.g., "foo" or "bar") or nil
 local function extract_function_name(pass_name)
   return pass_name:match(" on (.+)$")
+end
+
+-- Pre-compute which passes actually changed IR
+-- Sets pass.changed (boolean) and pass.diff_stats (table) for each pass
+function M.compute_pass_changes()
+  local ir_utils = require('godbolt.ir_utils')
+  local pipeline = require('godbolt.pipeline')
+
+  for index, pass in ipairs(M.state.passes) do
+    -- Get before IR using same logic as show_diff
+    local before_ir = M.get_before_ir_for_pass(index)
+    local after_ir = pass.ir
+
+    -- Apply same filtering as display
+    if M.state.config and M.state.config.display and M.state.config.display.strip_debug_metadata then
+      before_ir = select(1, ir_utils.filter_debug_metadata(before_ir))
+      after_ir = select(1, ir_utils.filter_debug_metadata(after_ir))
+    end
+
+    -- Compare IR and count differences
+    local changed = false
+    local lines_changed = 0
+    local max_lines = math.max(#before_ir, #after_ir)
+
+    if #before_ir ~= #after_ir then
+      changed = true
+      lines_changed = math.abs(#after_ir - #before_ir)
+    end
+
+    for i = 1, max_lines do
+      local before_line = before_ir[i] or ""
+      local after_line = after_ir[i] or ""
+      if before_line ~= after_line then
+        changed = true
+        lines_changed = lines_changed + 1
+      end
+    end
+
+    pass.changed = changed
+    pass.diff_stats = {
+      lines_changed = lines_changed,
+      lines_before = #before_ir,
+      lines_after = #after_ir,
+    }
+  end
+end
+
+-- Get before IR for a given pass index
+-- Extracted from show_diff logic for reuse
+-- @param index: pass index (1-based)
+-- @return: IR lines array
+function M.get_before_ir_for_pass(index)
+  local ir_utils = require('godbolt.ir_utils')
+  local pipeline = require('godbolt.pipeline')
+
+  if index <= 1 then
+    -- First pass: return empty or input
+    if M.state.input_file then
+      return pipeline.get_stripped_input(M.state.input_file) or {}
+    else
+      return {}
+    end
+  end
+
+  local pass = M.state.passes[index]
+  local scope_type = pass.scope_type
+  local scope_target = pass.scope_target
+
+  if scope_type == "module" then
+    -- Module pass: get previous module pass
+    for i = index - 1, 1, -1 do
+      if M.state.passes[i].scope_type == "module" then
+        return M.state.passes[i].ir
+      end
+    end
+
+    -- No previous module pass, use input
+    if M.state.input_file then
+      return pipeline.get_stripped_input(M.state.input_file) or {}
+    else
+      return {}
+    end
+
+  else
+    -- Function or CGSCC pass
+    local func_name = scope_target
+    local prev_pass = M.state.passes[index - 1]
+    local prev_scope_type = prev_pass.scope_type
+    local prev_func_name = prev_pass.scope_target
+
+    if prev_scope_type ~= "module" and prev_func_name == func_name then
+      -- Same function in previous pass
+      return prev_pass.ir
+    elseif prev_scope_type == "module" then
+      -- Previous pass was module, extract function
+      return ir_utils.extract_function(prev_pass.ir, func_name)
+    else
+      -- Different function, find last module pass
+      for i = index - 1, 1, -1 do
+        if M.state.passes[i].scope_type == "module" then
+          return ir_utils.extract_function(M.state.passes[i].ir, func_name)
+        end
+      end
+
+      -- No module pass found, try input
+      if func_name and M.state.input_file then
+        local input_ir = pipeline.get_stripped_input(M.state.input_file)
+        return ir_utils.extract_function(input_ir, func_name)
+      else
+        return {}
+      end
+    end
+  end
 end
 
 -- Show diff between pass N-1 and pass N
