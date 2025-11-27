@@ -617,4 +617,109 @@ function M.godbolt_lto(file_list, args_str)
   vim.cmd("doautocmd User GodboltLTO")
 end
 
+-- LTO Pipeline Viewer - Visualize LTO optimization passes for multiple files
+-- @param file_list: array of source file paths, or space-separated string
+-- @param args_str: optional arguments (opt level, extra flags)
+function M.godbolt_lto_pipeline(file_list, args_str)
+  args_str = args_str or ""
+
+  -- Parse file list if it's a string
+  if type(file_list) == "string" then
+    file_list = vim.split(file_list, "%s+")
+  end
+
+  -- Validate input
+  if not file_list or #file_list == 0 then
+    print("[LTO Pipeline] Error: No source files provided")
+    print("[LTO Pipeline] Usage: :GodboltLTOPipeline file1.c file2.c [-O2]")
+    return
+  end
+
+  if #file_list < 2 then
+    print("[LTO Pipeline] Warning: LTO works best with multiple files")
+  end
+
+  -- Expand file paths
+  local expanded_files = {}
+  for _, file in ipairs(file_list) do
+    local expanded = vim.fn.expand(file)
+    if vim.fn.filereadable(expanded) == 1 then
+      table.insert(expanded_files, expanded)
+    else
+      print(string.format("[LTO Pipeline] Error: File not found: %s", file))
+      return
+    end
+  end
+
+  -- Parse optimization level from args
+  local opt_level = args_str:match("%-O%d") or "-O2"
+  local extra_args = args_str:gsub("%-O%d", ""):gsub("^%s+", ""):gsub("%s+$", "")
+
+  print(string.format("[LTO Pipeline] Analyzing %d files with %s...", #expanded_files, opt_level))
+
+  -- Load LTO module
+  local ok, lto = pcall(require, 'godbolt.lto')
+  if not ok then
+    print("[LTO Pipeline] Error: Failed to load LTO module")
+    return
+  end
+
+  -- Run LTO pipeline with pass capture
+  local success, pipeline_output = lto.run_lto_pipeline(expanded_files, opt_level, extra_args)
+
+  if not success then
+    print("[LTO Pipeline] Failed:")
+    print(pipeline_output)
+    return
+  end
+
+  -- Parse pipeline output using existing parser
+  local pipeline_ok, pipeline = pcall(require, 'godbolt.pipeline')
+  if not pipeline_ok then
+    print("[LTO Pipeline] Error: Failed to load pipeline module")
+    return
+  end
+
+  -- Parse passes from LTO output (reuse existing parser!)
+  local passes = pipeline.parse_pipeline_output(pipeline_output)
+
+  if not passes or #passes == 0 then
+    print("[LTO Pipeline] No optimization passes captured")
+    print("[LTO Pipeline] This might happen if:")
+    print("  - Compilation failed")
+    print("  - No optimizations were performed")
+    print("  - Output format was unexpected")
+    return
+  end
+
+  print(string.format("[LTO Pipeline] Captured %d pass stages", #passes))
+
+  -- Setup pipeline viewer
+  local viewer_ok, pipeline_viewer = pcall(require, 'godbolt.pipeline_viewer')
+  if viewer_ok then
+    -- Create a virtual "source buffer" (use first file as reference)
+    local source_bufnr = vim.fn.bufnr(expanded_files[1])
+    if source_bufnr == -1 then
+      -- File not loaded, open it
+      vim.cmd("edit " .. expanded_files[1])
+      source_bufnr = vim.fn.bufnr("%")
+    end
+
+    -- Merge config
+    local viewer_config = vim.tbl_deep_extend("force", M.config.pipeline, {
+      line_mapping = M.config.line_mapping,
+      display = M.config.display
+    })
+
+    -- Note: For LTO, we don't have a single input file
+    -- Use first file as reference, but viewer won't show "before" state from input
+    pipeline_viewer.setup(source_bufnr, nil, passes, viewer_config)
+  else
+    print("[LTO Pipeline] Failed to load pipeline viewer")
+  end
+
+  -- Trigger autocommand event
+  vim.cmd("doautocmd User GodboltLTOPipeline")
+end
+
 return M

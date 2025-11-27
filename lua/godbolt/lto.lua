@@ -215,4 +215,55 @@ function M.cleanup(temp_dir)
   end
 end
 
+-- Run LTO pipeline with pass visualization
+-- Compiles and links with LTO while capturing all optimization passes
+-- @param source_files: array of source file paths
+-- @param opt_level: optimization level (e.g., "-O2", "-O3")
+-- @param extra_args: additional compiler arguments
+-- @return: success (boolean), pipeline_output (string) or error_message (string)
+function M.run_lto_pipeline(source_files, opt_level, extra_args)
+  opt_level = opt_level or "-O2"
+  extra_args = extra_args or ""
+
+  if #source_files == 0 then
+    return false, "No source files provided"
+  end
+
+  -- Detect compiler from first file
+  local compiler = "clang"
+  for _, file in ipairs(source_files) do
+    if file:match("%.cpp$") or file:match("%.cc$") or file:match("%.cxx$") then
+      compiler = "clang++"
+      break
+    end
+  end
+
+  -- Build file list
+  local src_list = table.concat(vim.tbl_map(function(f)
+    return '"' .. vim.fn.expand(f) .. '"'
+  end, source_files), " ")
+
+  -- Build command: Use clang with LTO and capture pass output
+  -- Note: -Wl,-mllvm,-print-after-all passes the option to the linker's LLVM optimizer
+  local cmd = string.format(
+    '%s -flto %s %s -Wl,-mllvm,-print-after-all -Wl,-mllvm,-print-before-pass-number=1 -S -emit-llvm -o /dev/null %s 2>&1',
+    compiler,
+    opt_level,
+    extra_args,
+    src_list
+  )
+
+  print(string.format("[LTO Pipeline] Running command:"))
+  print("  " .. cmd)
+
+  local output = vim.fn.system(cmd)
+  local exit_code = vim.v.shell_error
+
+  if exit_code ~= 0 then
+    return false, string.format("LTO pipeline failed:\n%s", output)
+  end
+
+  return true, output
+end
+
 return M
