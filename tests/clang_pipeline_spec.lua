@@ -428,5 +428,24 @@ describe("real-world C/C++ file with scope detection", function()
     assert.is_true(has_module, "Should have at least one module pass")
     assert.is_true(has_function or has_cgscc, "Should have at least one function or CGSCC pass")
   end)
+
+  it("generates initial IR from C files for first pass comparison", function()
+    local test_file = vim.fn.fnamemodify("tests/fixtures/qs.c", ":p")
+
+    if vim.fn.executable("clang") == 0 then
+      pending("clang not installed")
+      return
+    end
+
+    -- Get initial IR for C file
+    local input_ir = pipeline.get_stripped_input(test_file)
+
+    assert.is_true(#input_ir > 0, "Should generate IR from C file")
+
+    -- Check that initial IR contains both functions
+    local ir_text = table.concat(input_ir, "\n")
+    assert.is_true(ir_text:match("quicksort") ~= nil, "Initial IR should contain quicksort")
+    assert.is_true(ir_text:match("main") ~= nil, "Initial IR should contain main")
+  end)
 end)
 

@@ -420,10 +420,75 @@ function M.ir_equal(ir1, ir2)
   return true
 end
 
--- Get stripped input IR by running opt --strip-debug
--- @param input_file: path to .ll file
+-- Get stripped input IR
+-- For .ll files: runs opt --strip-debug
+-- For .c/.cpp files: compiles to LLVM IR with -O0
+-- @param input_file: path to .ll, .c, or .cpp file
 -- @return: array of IR lines with debug info removed
 function M.get_stripped_input(input_file)
+  -- Handle C/C++ files by compiling to LLVM IR first
+  if input_file:match("%.c$") or input_file:match("%.cpp$") then
+    local compiler = input_file:match("%.cpp$") and "clang++" or "clang"
+    local godbolt = require('godbolt')
+    local lang_args = input_file:match("%.cpp$") and
+      godbolt.config.cpp_args or godbolt.config.c_args
+
+    -- Build command to compile to LLVM IR with -O0 (unoptimized initial state)
+    local cmd_parts = {
+      compiler,
+      "-O0",
+      "-Xclang", "-disable-O0-optnone",  -- Allow optimization passes to run on O0 code
+    }
+
+    -- Add language args if they exist
+    if lang_args then
+      if type(lang_args) == "string" then
+        for arg in lang_args:gmatch("%S+") do
+          table.insert(cmd_parts, arg)
+        end
+      else
+        for _, arg in ipairs(lang_args) do
+          table.insert(cmd_parts, arg)
+        end
+      end
+    end
+
+    table.insert(cmd_parts, "-S")
+    table.insert(cmd_parts, "-emit-llvm")
+    table.insert(cmd_parts, "-o")
+    table.insert(cmd_parts, "-")  -- Output to stdout
+    table.insert(cmd_parts, '"' .. input_file .. '"')
+
+    local cmd = table.concat(cmd_parts, " ") .. " 2>&1"
+
+    if M.debug then
+      print("[Pipeline Debug] Compiling C/C++ to initial IR with: " .. cmd)
+    end
+
+    local output = vim.fn.system(cmd)
+
+    -- Check for compilation errors
+    if vim.v.shell_error ~= 0 then
+      if M.debug then
+        print("[Pipeline Debug] Error compiling C/C++ file to IR")
+      end
+      return {}
+    end
+
+    -- Split into lines
+    local lines = {}
+    for line in output:gmatch("[^\r\n]+") do
+      table.insert(lines, line)
+    end
+
+    if M.debug then
+      print(string.format("[Pipeline Debug] Got %d lines of initial IR from C/C++", #lines))
+    end
+
+    return lines
+  end
+
+  -- Handle .ll files with opt --strip-debug
   local cmd = string.format('opt --strip-debug -S "%s" 2>&1', input_file)
 
   if M.debug then
