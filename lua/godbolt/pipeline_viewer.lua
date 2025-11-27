@@ -58,8 +58,26 @@ function M.setup(source_bufnr, input_file, passes, config)
   -- This allows us to gray out no-op passes in the list
   M.compute_pass_changes()
 
-  -- Start at first pass
-  M.state.current_index = config.start_at_final and #passes or 1
+  -- Start at first/last changed pass
+  if config.start_at_final then
+    -- Find last changed pass
+    M.state.current_index = #passes
+    for i = #passes, 1, -1 do
+      if passes[i].changed then
+        M.state.current_index = i
+        break
+      end
+    end
+  else
+    -- Find first changed pass
+    M.state.current_index = 1
+    for i = 1, #passes do
+      if passes[i].changed then
+        M.state.current_index = i
+        break
+      end
+    end
+  end
 
   -- Create 3-pane layout
   M.create_layout()
@@ -641,23 +659,91 @@ function M.show_stats(index)
   end
 end
 
--- Navigate to next pass
+-- Navigate to next pass (skips unchanged passes)
 function M.next_pass()
+  if not M.state.passes or #M.state.passes == 0 then
+    return
+  end
+
+  -- Find next changed pass
+  for i = M.state.current_index + 1, #M.state.passes do
+    if M.state.passes[i].changed then
+      M.show_diff(i)
+      return
+    end
+  end
+
+  -- No changed pass found ahead, wrap to first changed pass
+  for i = 1, M.state.current_index do
+    if M.state.passes[i].changed then
+      M.show_diff(i)
+      return
+    end
+  end
+
+  -- No changed passes at all (unlikely), just go to next
   M.show_diff(M.state.current_index + 1)
 end
 
--- Navigate to previous pass
+-- Navigate to previous pass (skips unchanged passes)
 function M.prev_pass()
+  if not M.state.passes or #M.state.passes == 0 then
+    return
+  end
+
+  -- Find previous changed pass
+  for i = M.state.current_index - 1, 1, -1 do
+    if M.state.passes[i].changed then
+      M.show_diff(i)
+      return
+    end
+  end
+
+  -- No changed pass found before, wrap to last changed pass
+  for i = #M.state.passes, M.state.current_index, -1 do
+    if M.state.passes[i].changed then
+      M.show_diff(i)
+      return
+    end
+  end
+
+  -- No changed passes at all (unlikely), just go to previous
   M.show_diff(M.state.current_index - 1)
 end
 
--- Navigate to first pass
+-- Navigate to first changed pass
 function M.first_pass()
+  if not M.state.passes or #M.state.passes == 0 then
+    return
+  end
+
+  -- Find first changed pass
+  for i = 1, #M.state.passes do
+    if M.state.passes[i].changed then
+      M.show_diff(i)
+      return
+    end
+  end
+
+  -- No changed passes, just go to first
   M.show_diff(1)
 end
 
--- Navigate to last pass
+-- Navigate to last changed pass
 function M.last_pass()
+  if not M.state.passes or #M.state.passes == 0 then
+    return
+  end
+
+  -- Find last changed pass
+  for i = #M.state.passes, 1, -1 do
+    if M.state.passes[i].changed then
+      M.show_diff(i)
+      return
+    end
+  end
+
+  -- No changed passes, just go to last
   M.show_diff(#M.state.passes)
 end
 
