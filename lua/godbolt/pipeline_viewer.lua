@@ -166,15 +166,36 @@ function M.populate_pass_list()
     table.insert(lines, line)
 
     -- Show stats as sub-item if configured
+    -- Stats delta should compare like-for-like scopes to match what the diff shows
     if M.state.config.show_stats and i > 1 then
-      local prev_stats = M.state.passes[i - 1].stats
-      local delta = stats.delta(prev_stats, pass.stats)
+      local prev_stats = nil
 
-      -- Only show if there were changes
-      if delta.instructions ~= 0 or delta.basic_blocks ~= 0 then
-        local stats_line = string.format("     D: Insts %+d, BBs %+d",
-          delta.instructions, delta.basic_blocks)
-        table.insert(lines, stats_line)
+      if pass.scope_type == "module" then
+        -- For module passes, find previous module pass (same logic as show_diff)
+        for j = i - 1, 1, -1 do
+          if M.state.passes[j].scope_type == "module" then
+            prev_stats = M.state.passes[j].stats
+            break
+          end
+        end
+      else
+        -- For function/CGSCC passes, only compare to previous pass if same target
+        local prev_pass = M.state.passes[i - 1]
+        if prev_pass.scope_type ~= "module" and prev_pass.scope_target == pass.scope_target then
+          prev_stats = prev_pass.stats
+        end
+      end
+
+      -- Only show stats if we have a valid comparison
+      if prev_stats then
+        local delta = stats.delta(prev_stats, pass.stats)
+
+        -- Only show if there were changes
+        if delta.instructions ~= 0 or delta.basic_blocks ~= 0 then
+          local stats_line = string.format("     D: Insts %+d, BBs %+d",
+            delta.instructions, delta.basic_blocks)
+          table.insert(lines, stats_line)
+        end
       end
     end
   end
