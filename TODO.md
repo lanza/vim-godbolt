@@ -1,35 +1,8 @@
 # TODO & Feature Ideas
 
 - [ ] DILexicalBlockScope exploration for scope-aware features
-- [ ] Complete assembly line mapping (parse `.loc` directives)
 
 ---
-
-### Assembly & Output Improvements
-- [ ] **CFI Directive Filtering** - Make assembly output more readable
-  - Toggle CFI directives on/off
-  - Filter other assembly directives (.section, .align, etc.)
-  - Customizable filter rules
-  - "Clean view" mode with minimal noise
-
-- [ ] **Complete Assembly Line Mapping** - Finish WIP feature
-  - Parse `.loc` directives properly
-  - Support for DWARF debug info
-  - Handle inline assembly blocks
-  - Work with different debug formats (DWARF, CodeView)
-
-### Assembly Enhancement
-- [ ] Multiple Assembly Syntax Support
-  - Toggle between AT&T and Intel syntax
-  - Support for ARM, RISC-V, MIPS assembly
-  - Architecture-specific optimization hints
-
-- [ ] Assembly Annotation System
-  - Automatically annotate assembly with instruction timing/latency
-  - Show which source lines generated which assembly blocks
-  - Add comments explaining what each instruction does
-  - Instruction reference tooltips/popups
-
 
 ### Project Integration
 - [ ] **compile_commands.json Integration** - Essential for real projects
@@ -287,4 +260,29 @@
   - Metal/HLSL/GLSL support
   - Compute shader analysis
 
----
+### Assembly & Output Improvements
+- [ ] **CFI Directive Filtering** - Make assembly output more readable
+  - Toggle CFI directives on/off
+  - Filter other assembly directives (.section, .align, etc.)
+  - Customizable filter rules
+  - "Clean view" mode with minimal noise
+
+- [ ] **Complete Assembly Line Mapping** - Finish WIP feature
+  - Parse `.loc` directives properly
+  - Support for DWARF debug info
+  - Handle inline assembly blocks
+  - Work with different debug formats (DWARF, CodeView)
+
+### Assembly Enhancement
+- [ ] Multiple Assembly Syntax Support
+  - Toggle between AT&T and Intel syntax
+  - Support for ARM, RISC-V, MIPS assembly
+  - Architecture-specific optimization hints
+
+- [ ] Assembly Annotation System
+  - Automatically annotate assembly with instruction timing/latency
+  - Show which source lines generated which assembly blocks
+  - Add comments explaining what each instruction does
+  - Instruction reference tooltips/popups
+
+

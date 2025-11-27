@@ -35,6 +35,16 @@ M.config = {
     start_at_final = true,
     filter_unchanged = false,
   },
+
+  -- LTO (Link-Time Optimization) configuration
+  lto = {
+    enabled = true,
+    linker = "ld.lld",              -- Linker to use (ld.lld, lld, etc.)
+    keep_temps = false,             -- Keep temporary object files
+    save_temps = true,              -- Use -save-temps to preserve intermediate files
+    project_auto_detect = true,     -- Auto-detect project files
+    compile_commands_path = "compile_commands.json",  -- Path to compile_commands.json
+  },
 }
 
 -- Setup function to override defaults
@@ -476,6 +486,135 @@ function M.godbolt_pipeline(args_str)
 
   -- Trigger autocommand event
   vim.cmd("doautocmd User GodboltPipeline")
+end
+
+-- LTO (Link-Time Optimization) compilation for multiple files
+-- Compiles multiple source files with LTO enabled and links them
+-- @param file_list: array of source file paths, or space-separated string
+-- @param args_str: optional additional compiler/linker arguments
+function M.godbolt_lto(file_list, args_str)
+  args_str = args_str or ""
+
+  -- Parse file list if it's a string
+  if type(file_list) == "string" then
+    file_list = vim.split(file_list, "%s+")
+  end
+
+  -- Validate input
+  if not file_list or #file_list == 0 then
+    print("[LTO] Error: No source files provided")
+    print("[LTO] Usage: :GodboltLTO file1.c file2.c [args]")
+    return
+  end
+
+  if #file_list < 2 then
+    print("[LTO] Warning: LTO works best with multiple files")
+    print("[LTO] For single-file compilation, use :Godbolt instead")
+  end
+
+  -- Expand file paths
+  local expanded_files = {}
+  for _, file in ipairs(file_list) do
+    local expanded = vim.fn.expand(file)
+    if vim.fn.filereadable(expanded) == 1 then
+      table.insert(expanded_files, expanded)
+    else
+      print(string.format("[LTO] Error: File not found: %s", file))
+      return
+    end
+  end
+
+  if #expanded_files == 0 then
+    print("[LTO] Error: No valid source files found")
+    return
+  end
+
+  print(string.format("[LTO] Compiling %d files with LTO...", #expanded_files))
+  for i, file in ipairs(expanded_files) do
+    print(string.format("  [%d] %s", i, vim.fn.fnamemodify(file, ":t")))
+  end
+
+  -- Load LTO module
+  local ok, lto = pcall(require, 'godbolt.lto')
+  if not ok then
+    print("[LTO] Error: Failed to load LTO module")
+    print("[LTO] " .. tostring(lto))
+    return
+  end
+
+  -- Prepare configuration
+  local lto_config = {
+    compiler = nil,  -- Auto-detect from file extension
+    linker = M.config.lto.linker,
+    extra_args = args_str,
+    keep_temps = M.config.lto.keep_temps,
+  }
+
+  -- Compile and link with LTO
+  local success, ir_lines, temp_dir = lto.lto_compile_and_link(expanded_files, lto_config)
+
+  if not success then
+    print("[LTO] Compilation/linking failed:")
+    print(ir_lines)  -- ir_lines contains error message
+    if temp_dir then
+      lto.cleanup(temp_dir)
+    end
+    return
+  end
+
+  -- Create new window and set up buffer
+  if M.config.window_cmd then
+    vim.cmd(M.config.window_cmd)
+  else
+    vim.cmd("vertical botright new")
+  end
+
+  vim.bo.filetype = "llvm"
+  vim.bo.buftype = "nofile"
+  vim.bo.bufhidden = "hide"
+  vim.bo.swapfile = false
+  vim.wo.number = false
+
+  -- Filter debug metadata if configured
+  local display_lines = ir_lines
+  local line_map = nil
+  if M.config.display and M.config.display.strip_debug_metadata then
+    local ir_utils = require('godbolt.ir_utils')
+    display_lines, line_map = ir_utils.filter_debug_metadata(ir_lines)
+  end
+
+  -- Set buffer content
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, display_lines)
+
+  -- Get output buffer number
+  local output_bufnr = vim.fn.bufnr("%")
+
+  -- Store original (unfiltered) lines for line mapping
+  vim.b[output_bufnr].godbolt_full_output = ir_lines
+
+  -- Store line number mapping (displayed line -> original line)
+  if line_map then
+    vim.b[output_bufnr].godbolt_line_map = line_map
+  end
+
+  -- Store source file list for future reference
+  vim.b[output_bufnr].godbolt_lto_sources = expanded_files
+
+  -- Set buffer name
+  local buffer_name = string.format("LTO: %d files", #expanded_files)
+  pcall(vim.api.nvim_buf_set_name, output_bufnr, buffer_name)
+
+  -- Cleanup temporary files if configured
+  if not M.config.lto.keep_temps then
+    lto.cleanup(temp_dir)
+  else
+    print(string.format("[LTO] Temporary files kept in: %s", temp_dir))
+  end
+
+  print(string.format("[LTO] Successfully linked %d files", #expanded_files))
+
+  -- Trigger autocommand event
+  vim.cmd("doautocmd User GodboltLTO")
 end
 
 return M

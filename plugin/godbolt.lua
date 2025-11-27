@@ -19,6 +19,19 @@ end, {
   desc = 'Run LLVM optimization pipeline and navigate through passes'
 })
 
+-- Create the GodboltLTO command for Link-Time Optimization
+vim.api.nvim_create_user_command('GodboltLTO', function(opts)
+  local godbolt = require('godbolt')
+  -- Split args into files and additional arguments
+  local args_str = opts.args or ""
+  local files = vim.split(args_str, "%s+")
+  godbolt.godbolt_lto(files, "")
+end, {
+  nargs = '+',
+  complete = 'file',
+  desc = 'Compile and link multiple files with LTO (Link-Time Optimization)'
+})
+
 -- Pipeline navigation commands
 vim.api.nvim_create_user_command('NextPass', function()
   local ok, pipeline_viewer = pcall(require, 'godbolt.pipeline_viewer')
