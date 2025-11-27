@@ -681,7 +681,8 @@ function M.godbolt_lto_pipeline(file_list, args_str)
   end
 
   -- Parse passes from LTO output (reuse existing parser!)
-  local passes = pipeline.parse_pipeline_output(pipeline_output)
+  -- Use "clang" source_type to avoid stopping at ModuleID (LTO has ModuleID in every dump)
+  local passes = pipeline.parse_pipeline_output(pipeline_output, "clang")
 
   if not passes or #passes == 0 then
     print("[LTO Pipeline] No optimization passes captured")

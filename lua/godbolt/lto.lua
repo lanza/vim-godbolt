@@ -243,14 +243,19 @@ function M.run_lto_pipeline(source_files, opt_level, extra_args)
     return '"' .. vim.fn.expand(f) .. '"'
   end, source_files), " ")
 
-  -- Build command: Use clang with LTO and capture pass output
-  -- Note: -Wl,-mllvm,-print-after-all passes the option to the linker's LLVM optimizer
+  -- Create temp output file
+  local temp_out = vim.fn.tempname()
+
+  -- Build command: Actually link with LTO to capture link-time passes
+  -- Key: We must actually perform linking for LTO passes to run
+  -- -Wl,-mllvm,-print-after-all passes -mllvm -print-after-all to lld's optimizer
   local cmd = string.format(
-    '%s -flto %s %s -Wl,-mllvm,-print-after-all -Wl,-mllvm,-print-before-pass-number=1 -S -emit-llvm -o /dev/null %s 2>&1',
+    '%s -flto %s %s -Wl,-mllvm,-print-after-all -Wl,-mllvm,-print-before-pass-number=1 %s -o "%s" 2>&1',
     compiler,
     opt_level,
     extra_args,
-    src_list
+    src_list,
+    temp_out
   )
 
   print(string.format("[LTO Pipeline] Running command:"))
@@ -258,6 +263,11 @@ function M.run_lto_pipeline(source_files, opt_level, extra_args)
 
   local output = vim.fn.system(cmd)
   local exit_code = vim.v.shell_error
+
+  -- Clean up temp file
+  if vim.fn.filereadable(temp_out) == 1 then
+    vim.fn.delete(temp_out)
+  end
 
   if exit_code ~= 0 then
     return false, string.format("LTO pipeline failed:\n%s", output)
