@@ -88,6 +88,36 @@ function M.highlight_lines_cursor(bufnr, lines)
   end
 end
 
+-- Apply column-specific cursor highlight
+-- Highlights a specific column/token instead of the whole line
+-- @param bufnr: buffer number
+-- @param line_num: line number (1-indexed)
+-- @param col_num: column number (1-indexed)
+-- @param width: optional width of highlight (default: 10 characters)
+function M.highlight_column_cursor(bufnr, line_num, col_num, width)
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+
+  if not line_num or line_num < 1 or not col_num or col_num < 1 then
+    -- Fall back to line highlighting if invalid
+    M.highlight_lines_cursor(bufnr, {line_num})
+    return
+  end
+
+  width = width or 10
+
+  -- Highlight the column range
+  pcall(vim.api.nvim_buf_add_highlight,
+    bufnr,
+    M.ns_cursor,
+    "GodboltCursor",
+    line_num - 1,       -- Convert to 0-indexed
+    col_num - 1,        -- Convert to 0-indexed (columns are 0-indexed in nvim API)
+    col_num - 1 + width -- End column
+  )
+end
+
 -- Get list of already highlighted lines in a buffer/namespace
 -- Used to avoid duplicate highlighting
 -- @param bufnr: buffer number

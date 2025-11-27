@@ -102,8 +102,18 @@ local function update_source_highlights(config)
       for _, win in ipairs(vim.api.nvim_list_wins()) do
         if vim.api.nvim_win_get_buf(win) == state.output_bufnr then
           vim.api.nvim_win_call(win, function()
-            vim.fn.cursor(first_line, 1)
-            vim.cmd('normal! zz')
+            -- Check if line is visible in window
+            local win_info = vim.fn.getwininfo(win)[1]
+            if win_info then
+              local top_line = win_info.topline
+              local bot_line = win_info.botline
+
+              -- Only scroll if line is off-screen
+              if first_line < top_line or first_line > bot_line then
+                vim.fn.cursor(first_line, 1)
+                vim.cmd('normal! zz')  -- Center line
+              end
+            end
           end)
           break
         end
@@ -130,15 +140,30 @@ local function update_output_highlights(config)
   highlight.clear_namespace(state.source_bufnr, highlight.ns_cursor)
   highlight.clear_namespace(state.output_bufnr, highlight.ns_cursor)
 
-  -- Get mapped source line
-  local mapped_src_line = state.out_to_src and state.out_to_src[cursor_line]
+  -- Get mapped source line and column
+  local mapped_info = state.out_to_src and state.out_to_src[cursor_line]
 
-  if mapped_src_line then
+  if mapped_info then
+    -- Handle both old format (number) and new format (table with line/column)
+    local mapped_src_line, mapped_src_col
+    if type(mapped_info) == "table" then
+      mapped_src_line = mapped_info.line
+      mapped_src_col = mapped_info.column
+    else
+      mapped_src_line = mapped_info
+      mapped_src_col = nil
+    end
+
     -- Highlight current output line with cursor style
     highlight.highlight_lines_cursor(state.output_bufnr, {cursor_line})
 
     -- Highlight mapped source line with cursor style
-    highlight.highlight_lines_cursor(state.source_bufnr, {mapped_src_line})
+    -- If we have column info, highlight that specific column/token
+    if mapped_src_col then
+      highlight.highlight_column_cursor(state.source_bufnr, mapped_src_line, mapped_src_col)
+    else
+      highlight.highlight_lines_cursor(state.source_bufnr, {mapped_src_line})
+    end
 
     -- Optional: Auto-scroll to mapped source line
     if config.auto_scroll then
@@ -146,8 +171,18 @@ local function update_output_highlights(config)
       for _, win in ipairs(vim.api.nvim_list_wins()) do
         if vim.api.nvim_win_get_buf(win) == state.source_bufnr then
           vim.api.nvim_win_call(win, function()
-            vim.fn.cursor(mapped_src_line, 1)
-            vim.cmd('normal! zz')
+            -- Check if line is visible in window
+            local win_info = vim.fn.getwininfo(win)[1]
+            if win_info then
+              local top_line = win_info.topline
+              local bot_line = win_info.botline
+
+              -- Only scroll if line is off-screen
+              if mapped_src_line < top_line or mapped_src_line > bot_line then
+                vim.fn.cursor(mapped_src_line, 1)
+                vim.cmd('normal! zz')  -- Center line
+              end
+            end
           end)
           break
         end
@@ -214,7 +249,10 @@ function M.setup(source_bufnr, output_bufnr, output_type, config)
   state.output_type = output_type
 
   -- Get output buffer lines
-  local output_lines = vim.api.nvim_buf_get_lines(output_bufnr, 0, -1, false)
+  -- Use full unfiltered output if available (for debug metadata parsing),
+  -- otherwise fallback to displayed lines
+  local output_lines = vim.b[output_bufnr].godbolt_full_output or
+                       vim.api.nvim_buf_get_lines(output_bufnr, 0, -1, false)
 
   -- Parse based on output type
   if output_type == "asm" then

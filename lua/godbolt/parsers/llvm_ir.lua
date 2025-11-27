@@ -11,11 +11,12 @@ function M.parse(ir_lines)
   for ir_line_num, line in ipairs(ir_lines) do
     -- Parse metadata definitions like:
     -- !21 = !DILocation(line: 2, column: 18, scope: !10)
-    local meta_id, src_line = line:match("^!(%d+)%s*=%s*!DILocation%(.-line:%s*(%d+)")
+    local meta_id, src_line, src_col = line:match("^!(%d+)%s*=%s*!DILocation%(.-line:%s*(%d+).-column:%s*(%d+)")
 
     if meta_id and src_line then
       metadata[tonumber(meta_id)] = {
         line = tonumber(src_line),
+        column = src_col and tonumber(src_col) or nil,
         ir_line = ir_line_num,
       }
     end
@@ -35,6 +36,7 @@ function M.parse(ir_lines)
         local meta = metadata[tonumber(dbg_ref)]
         if meta and meta.line then
           local src_line = meta.line
+          local src_col = meta.column
 
           -- Forward mapping: add this IR line to source line's list
           if not src_to_ir[src_line] then
@@ -42,8 +44,11 @@ function M.parse(ir_lines)
           end
           table.insert(src_to_ir[src_line], ir_line_num)
 
-          -- Reverse mapping
-          ir_to_src[ir_line_num] = src_line
+          -- Reverse mapping with column info
+          ir_to_src[ir_line_num] = {
+            line = src_line,
+            column = src_col
+          }
         end
       end
     end

@@ -1,7 +1,8 @@
 # TODO & Feature Ideas
 
-- [ ] Remove debuginfo from the visible output in the LLVMIR buffer
+- [x] Remove debuginfo from the visible output in the LLVMIR buffer
 - [ ] See if there is any value in mapping the DILexicalBlockScope and DILocalVariable, etc
+- [x] Complete column highlighting using DILocation metadata
 - [ ] Complete assembly line mapping (parse `.loc` directives)
 
 ---

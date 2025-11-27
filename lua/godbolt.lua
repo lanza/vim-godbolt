@@ -23,6 +23,11 @@ M.config = {
     show_compilation_cmd = true,    -- Show compilation command when debug info fails
   },
 
+  -- Display configuration
+  display = {
+    strip_debug_metadata = true,    -- Hide debug metadata (!123 = !{...}) in LLVM IR display
+  },
+
   -- Pipeline configuration
   pipeline = {
     enabled = true,
@@ -106,6 +111,34 @@ local function has_debug_disabling_flags(args)
   -- Check for flags that explicitly disable debug info
   return args:match("%-g0%s") or args:match("%-g0$") or
          args:match("%-ggdb0%s") or args:match("%-ggdb0$")
+end
+
+-- Filter debug metadata from LLVM IR for display
+-- @param ir_lines: array of LLVM IR lines
+-- @return: filtered_lines (for display), original_lines (for line mapping)
+local function filter_debug_metadata(ir_lines)
+  local filtered = {}
+
+  for _, line in ipairs(ir_lines) do
+    -- Keep non-metadata lines and attributes
+    -- Filter out:
+    -- - !123 = !{...}  (numbered metadata)
+    -- - !llvm.ident, !llvm.module.flags, etc.
+    -- Keep:
+    -- - attributes #0 = { ... }  (function attributes)
+    -- - All actual IR code
+    local is_metadata = line:match("^![0-9]+ = ") or      -- !123 = !{...}
+                        line:match("^!llvm%.") or          -- !llvm.ident = !{...}
+                        line:match("^!%.") or              -- !.something
+                        line:match("^; ModuleID") or       -- ; ModuleID (optional, can keep)
+                        line:match("^source_filename")     -- source_filename (optional, can keep)
+
+    if not is_metadata then
+      table.insert(filtered, line)
+    end
+  end
+
+  return filtered
 end
 
 -- Main godbolt function
@@ -231,10 +264,20 @@ function M.godbolt(args_str)
 
   -- Insert stdout into buffer
   local output_lines = vim.split(output, "\n")
-  vim.api.nvim_buf_set_lines(0, 0, -1, false, output_lines)
+
+  -- Filter debug metadata for display if configured
+  local display_lines = output_lines
+  if output_type == "llvm" and M.config.display and M.config.display.strip_debug_metadata then
+    display_lines = filter_debug_metadata(output_lines)
+  end
+
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, display_lines)
 
   -- Get output buffer number (current buffer after creating new window)
   local output_bufnr = vim.fn.bufnr("%")
+
+  -- Store original (unfiltered) lines for line mapping
+  vim.b[output_bufnr].godbolt_full_output = output_lines
 
   -- Verify debug info and setup line mapping
   if M.config.line_mapping and M.config.line_mapping.enabled then
@@ -257,6 +300,17 @@ function M.godbolt(args_str)
         -- Schedule to run after buffer is fully initialized
         vim.schedule(function()
           line_map.setup(source_bufnr, output_bufnr, output_type, M.config.line_mapping)
+
+          -- Add variable name annotations for LLVM IR
+          if output_type == "llvm" and M.config.display and M.config.display.annotate_variables ~= false then
+            local ok_debug, debug_info = pcall(require, 'godbolt.debug_info')
+            if ok_debug then
+              -- Use displayed lines and full output for annotation
+              local displayed_lines = vim.api.nvim_buf_get_lines(output_bufnr, 0, -1, false)
+              local full_lines = vim.b[output_bufnr].godbolt_full_output or displayed_lines
+              debug_info.annotate_variables(output_bufnr, displayed_lines, full_lines)
+            end
+          end
         end)
       end
     end
