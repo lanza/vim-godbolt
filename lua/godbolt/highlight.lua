@@ -105,16 +105,20 @@ function M.highlight_column_cursor(bufnr, line_num, col_num, width)
     return
   end
 
-  width = width or 10
+  width = width or 1  -- Highlight just the starting character by default
 
   -- Highlight the column range
+  -- NOTE: nvim_buf_add_highlight uses 0-indexed positions with EXCLUSIVE end
+  -- To highlight N characters starting at 1-indexed column C:
+  --   col_start = C - 1 (convert to 0-indexed)
+  --   col_end = C - 1 + N (exclusive, so highlights N characters)
   pcall(vim.api.nvim_buf_add_highlight,
     bufnr,
     M.ns_cursor,
     "GodboltCursor",
     line_num - 1,       -- Convert to 0-indexed
-    col_num - 1,        -- Convert to 0-indexed (columns are 0-indexed in nvim API)
-    col_num - 1 + width -- End column
+    col_num - 1,        -- Convert to 0-indexed start position
+    math.min(col_num - 1 + width, 9999) -- End position (exclusive), clamped
   )
 end
 

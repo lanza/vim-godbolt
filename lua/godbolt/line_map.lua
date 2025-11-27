@@ -46,6 +46,16 @@ local function apply_static_highlights()
   -- Get already highlighted source lines to avoid duplicates
   local highlighted_source_lines = highlight.get_highlighted_lines(state.source_bufnr, highlight.ns_static)
 
+  -- Create reverse line mapping if needed (original -> displayed)
+  local reverse_map = nil
+  if vim.b[state.output_bufnr].godbolt_line_map then
+    local line_map = vim.b[state.output_bufnr].godbolt_line_map
+    reverse_map = {}
+    for displayed, original in pairs(line_map) do
+      reverse_map[original] = displayed
+    end
+  end
+
   -- Iterate through all source → output mappings
   for src_line, out_lines in pairs(state.src_to_out) do
     -- Highlight source line if not already highlighted
@@ -62,8 +72,18 @@ local function apply_static_highlights()
       table.insert(highlighted_source_lines, src_line - 1)
     end
 
+    -- Translate output lines to displayed lines if needed
+    local displayed_out_lines = out_lines
+    if reverse_map then
+      displayed_out_lines = {}
+      for _, original_line in ipairs(out_lines) do
+        local displayed_line = reverse_map[original_line] or original_line
+        table.insert(displayed_out_lines, displayed_line)
+      end
+    end
+
     -- Highlight all corresponding output lines
-    highlight.highlight_lines_static(state.output_bufnr, out_lines)
+    highlight.highlight_lines_static(state.output_bufnr, displayed_out_lines)
   end
 end
 
@@ -87,6 +107,24 @@ local function update_source_highlights(config)
 
   -- Get mapped output lines
   local mapped_lines = state.src_to_out and state.src_to_out[cursor_line] or {}
+
+  -- Translate original line numbers to displayed line numbers
+  if #mapped_lines > 0 and vim.b[state.output_bufnr].godbolt_line_map then
+    local line_map = vim.b[state.output_bufnr].godbolt_line_map
+    -- Create reverse mapping: original_line -> displayed_line
+    local reverse_map = {}
+    for displayed, original in pairs(line_map) do
+      reverse_map[original] = displayed
+    end
+
+    -- Translate all mapped lines
+    local translated_lines = {}
+    for _, original_line in ipairs(mapped_lines) do
+      local displayed_line = reverse_map[original_line] or original_line
+      table.insert(translated_lines, displayed_line)
+    end
+    mapped_lines = translated_lines
+  end
 
   if #mapped_lines > 0 then
     -- Highlight current source line with cursor style
@@ -136,12 +174,19 @@ local function update_output_highlights(config)
   -- Get current cursor line
   local cursor_line = vim.api.nvim_win_get_cursor(0)[1]
 
+  -- Translate displayed line to original line number (for filtered buffers)
+  -- If debug metadata was filtered, displayed line numbers != original line numbers
+  local original_line = cursor_line
+  if vim.b[state.output_bufnr].godbolt_line_map then
+    original_line = vim.b[state.output_bufnr].godbolt_line_map[cursor_line] or cursor_line
+  end
+
   -- Clear previous cursor highlights in BOTH buffers
   highlight.clear_namespace(state.source_bufnr, highlight.ns_cursor)
   highlight.clear_namespace(state.output_bufnr, highlight.ns_cursor)
 
-  -- Get mapped source line and column
-  local mapped_info = state.out_to_src and state.out_to_src[cursor_line]
+  -- Get mapped source line and column (use original line number)
+  local mapped_info = state.out_to_src and state.out_to_src[original_line]
 
   if mapped_info then
     -- Handle both old format (number) and new format (table with line/column)

@@ -239,9 +239,10 @@ function M.godbolt(args_str)
 
   -- Filter debug metadata for display if configured
   local display_lines = output_lines
+  local line_map = nil
   if output_type == "llvm" and M.config.display and M.config.display.strip_debug_metadata then
     local ir_utils = require('godbolt.ir_utils')
-    display_lines = ir_utils.filter_debug_metadata(output_lines)
+    display_lines, line_map = ir_utils.filter_debug_metadata(output_lines)
   end
 
   vim.api.nvim_buf_set_lines(0, 0, -1, false, display_lines)
@@ -251,6 +252,11 @@ function M.godbolt(args_str)
 
   -- Store original (unfiltered) lines for line mapping
   vim.b[output_bufnr].godbolt_full_output = output_lines
+
+  -- Store line number mapping (displayed line -> original line)
+  if line_map then
+    vim.b[output_bufnr].godbolt_line_map = line_map
+  end
 
   -- Verify debug info and setup line mapping
   if M.config.line_mapping and M.config.line_mapping.enabled then

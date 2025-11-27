@@ -388,8 +388,8 @@ function M.show_diff(index)
 
   -- Filter debug metadata if configured
   if M.state.config and M.state.config.display and M.state.config.display.strip_debug_metadata then
-    before_ir = ir_utils.filter_debug_metadata(before_ir)
-    after_ir = ir_utils.filter_debug_metadata(after_ir)
+    before_ir = select(1, ir_utils.filter_debug_metadata(before_ir))
+    after_ir = select(1, ir_utils.filter_debug_metadata(after_ir))
   end
 
   -- Update buffers

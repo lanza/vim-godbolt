@@ -115,11 +115,14 @@ end
 -- Filter debug metadata from LLVM IR for display
 -- Removes debug intrinsic lines (#dbg_declare, #dbg_value) and inline metadata references
 -- @param ir_lines: array of LLVM IR lines
--- @return: filtered array with debug metadata removed
+-- @return: filtered_lines, line_map
+--   - filtered_lines: array with debug metadata removed
+--   - line_map: table mapping displayed_line_num -> original_line_num
 function M.filter_debug_metadata(ir_lines)
   local filtered = {}
+  local line_map = {}  -- displayed_line -> original_line
 
-  for _, line in ipairs(ir_lines) do
+  for original_line_num, line in ipairs(ir_lines) do
     -- Skip lines that are ONLY debug intrinsics (entire line)
     -- Matches:   #dbg_declare(ptr %a.addr, !14, !DIExpression(), !15)
     --            #dbg_value(i32 %10, !26, !DIExpression(), !47)
@@ -155,10 +158,14 @@ function M.filter_debug_metadata(ir_lines)
 
     table.insert(filtered, cleaned_line)
 
+    -- Map displayed line number to original line number
+    local displayed_line_num = #filtered
+    line_map[displayed_line_num] = original_line_num
+
     ::continue::
   end
 
-  return filtered
+  return filtered, line_map
 end
 
 return M
