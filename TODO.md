@@ -1,13 +1,9 @@
 # TODO & Feature Ideas
 
-- [x] Remove debuginfo from the visible output in the LLVMIR buffer
-- [ ] See if there is any value in mapping the DILexicalBlockScope and DILocalVariable, etc
-- [x] Complete column highlighting using DILocation metadata
+- [ ] DILexicalBlockScope exploration for scope-aware features
 - [ ] Complete assembly line mapping (parse `.loc` directives)
 
 ---
-
-## High Priority Features
 
 ### Assembly & Output Improvements
 - [ ] **CFI Directive Filtering** - Make assembly output more readable
@@ -21,6 +17,19 @@
   - Support for DWARF debug info
   - Handle inline assembly blocks
   - Work with different debug formats (DWARF, CodeView)
+
+### Assembly Enhancement
+- [ ] Multiple Assembly Syntax Support
+  - Toggle between AT&T and Intel syntax
+  - Support for ARM, RISC-V, MIPS assembly
+  - Architecture-specific optimization hints
+
+- [ ] Assembly Annotation System
+  - Automatically annotate assembly with instruction timing/latency
+  - Show which source lines generated which assembly blocks
+  - Add comments explaining what each instruction does
+  - Instruction reference tooltips/popups
+
 
 ### Project Integration
 - [ ] **compile_commands.json Integration** - Essential for real projects
@@ -40,17 +49,18 @@
   - Support for different MLIR dialects
   - Multi-level mapping (source → high-level IR → low-level IR)
 
+### MLIR Features
+- [ ] MLIR Dialect Browser - Navigate between dialect conversions
+  - Tree view of dialect hierarchy
+  - Highlight dialect-specific operations
+  - Quick reference for MLIR ops
+
 ### Developer Experience
 - [ ] **Live Recompilation Mode** - Great for iterative development
   - Auto-recompile on save
   - Incremental compilation
   - Show diff from previous compilation
   - Watch mode for iterative optimization
-
----
-
-## Medium Priority Features (Tier 2)
-*High impact, requires more implementation effort*
 
 ### Optimization Analysis
 - [ ] **Optimization Level Diff Viewer** - Very useful for learning
@@ -90,11 +100,6 @@
   - Load shared examples
   - Compare with online results
   - Access to multiple compiler versions
-
----
-
-## Future Ideas
-*Nice to have features for long-term roadmap*
 
 ### Visualization
 - [ ] **Control Flow Graph (CFG) Viewer**
@@ -140,28 +145,6 @@
   - Track code size evolution
   - Performance regression detection
   - Assembly diff in PR reviews
-
----
-
-## Comprehensive Feature List by Category
-
-### MLIR Features
-- [ ] MLIR Dialect Browser - Navigate between dialect conversions
-  - Tree view of dialect hierarchy
-  - Highlight dialect-specific operations
-  - Quick reference for MLIR ops
-
-### Assembly Enhancement
-- [ ] Multiple Assembly Syntax Support
-  - Toggle between AT&T and Intel syntax
-  - Support for ARM, RISC-V, MIPS assembly
-  - Architecture-specific optimization hints
-
-- [ ] Assembly Annotation System
-  - Automatically annotate assembly with instruction timing/latency
-  - Show which source lines generated which assembly blocks
-  - Add comments explaining what each instruction does
-  - Instruction reference tooltips/popups
 
 ### Interactive Features
 - [ ] Interactive Flag Explorer - Helps discover compiler options
