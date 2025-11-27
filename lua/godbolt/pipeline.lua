@@ -306,9 +306,9 @@ function M.parse_pipeline_output(output, source_type)
           current_before_ir = ir_utils.clean_ir(current_ir, current_scope_type)
 
           -- Also save as initial IR if it's the first module-scoped before dump
-          if not initial_ir and scope_type == "module" then
+          if not initial_ir and current_scope_type == "module" then
             initial_ir = current_before_ir
-            initial_scope_type = scope_type
+            initial_scope_type = current_scope_type
             if M.debug then
               print(string.format("[Pipeline Debug] Saved initial IR (module-scoped) with %d lines", #current_ir))
             end

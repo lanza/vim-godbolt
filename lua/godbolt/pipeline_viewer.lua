@@ -418,6 +418,11 @@ function M.get_before_ir_for_pass(index)
   local scope_type = pass.scope_type
   local scope_target = pass.scope_target
 
+  -- Prefer captured before_ir from -print-before-all
+  if pass.before_ir and #pass.before_ir > 0 then
+    return pass.before_ir
+  end
+
   if scope_type == "module" then
     -- Module pass: get previous module pass
     for i = index - 1, 1, -1 do
@@ -487,7 +492,11 @@ function M.show_diff(index)
 
   if scope_type == "module" then
     -- Module pass: show full module before/after
-    if index == 1 then
+    -- Prefer captured before_ir from -print-before-all
+    if pass.before_ir and #pass.before_ir > 0 then
+      before_ir = pass.before_ir
+      before_name = "Before: " .. pass.name
+    elseif index == 1 then
       -- First pass overall: get input module
       if M.state.input_file then
         before_ir = pipeline.get_stripped_input(M.state.input_file)
