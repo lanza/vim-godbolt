@@ -2,7 +2,7 @@
 
 A powerful Neovim plugin that brings Compiler Explorer (godbolt.org) functionality directly into your editor. Compile your code to assembly, LLVM IR, or other intermediate representations in a split window, with bidirectional line mapping and LLVM optimization pipeline visualization.
 
-![](sample.png)
+[![asciicast](Pipeline)](https://asciinema.org/a/KUbt8dRWzYNTE3i8ijrpAKLjN)
 
 ## Features
 
@@ -13,16 +13,6 @@ A powerful Neovim plugin that brings Compiler Explorer (godbolt.org) functionali
 - **Per-file compiler arguments**: Use comments to specify flags per file
 - **Automatic output detection**: Intelligently detects output type from compiler flags
 - **Clean output**: Separates warnings/errors from the main output buffer
-
-## Screenshots
-
-Basic assembly output:
-
-![](sample.png)
-
-Swift support with demangling:
-
-![](swift.png)
 
 ## Quick Start
 
@@ -458,88 +448,3 @@ Compare different optimization levels:
 :Godbolt -O3
 " Use :diffthis in both buffers to compare
 ```
-
-## Troubleshooting
-
-### Line Mapping Not Working
-
-- Ensure your code is being compiled with `-g` (the plugin adds this automatically)
-- For LLVM IR, use `:Godbolt -emit-llvm` for best line mapping support
-- Line mapping requires debug metadata in the output
-- Check `:messages` for any errors
-
-### Pipeline Viewer Shows No Passes
-
-1. **Check for `optnone` attributes:**
-   ```vim
-   :GodboltStripOptnone
-   ```
-
-2. **Recompile without optnone:**
-   ```bash
-   clang -S -emit-llvm -O0 -Xclang -disable-O0-optnone yourfile.c -o yourfile.ll
-   ```
-
-3. **Enable debug mode to see what's happening:**
-   ```vim
-   :GodboltDebug on
-   :GodboltPipeline O2
-   ```
-
-### Compiler Not Found
-
-If you get "command not found" errors:
-
-1. Install the required compilers:
-   ```bash
-   # macOS
-   xcode-select --install
-   brew install llvm
-
-   # Linux (Ubuntu/Debian)
-   sudo apt install clang llvm
-   ```
-
-2. Update your configuration to use absolute paths:
-   ```lua
-   require('godbolt').setup({
-     clang = '/usr/local/bin/clang',
-     opt = '/usr/local/opt/llvm/bin/opt',
-   })
-   ```
-
-## Future Ideas
-
-- Read from a `compile_commands.json` file for automatic compiler flags
-- Parse away CFI directives for cleaner output
-- Assembly line mapping support (currently only LLVM IR is fully supported)
-- Additional output format support (objdump with different formats)
-- Diff view between different optimization levels
-
-## Contributing
-
-Contributions are welcome! If you find a bug or have a feature request, please open an issue on GitHub.
-
-**Development:**
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b my-feature`
-3. Make your changes
-4. Run tests: `nvim --headless -c "PlenaryBustedDirectory tests/ { minimal_init = 'tests/minimal_init.lua' }"`
-5. Submit a pull request
-
-**Areas that need help:**
-- Assembly line mapping (parsing `.loc` directives)
-- Additional compiler support (GCC, Rust, etc.)
-- Performance optimizations
-- Documentation improvements
-
-## License
-
-This project is open source. See the repository for license details.
-
-## Acknowledgments
-
-- Inspired by [Compiler Explorer (godbolt.org)](https://godbolt.org/)
-- Built with Neovim's powerful Lua API
-- Thanks to the LLVM project for excellent tooling
