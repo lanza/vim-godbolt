@@ -112,4 +112,53 @@ function M.extract_function(ir_lines, func_name)
   return M.clean_ir(func_ir)
 end
 
+-- Filter debug metadata from LLVM IR for display
+-- Removes debug intrinsic lines (#dbg_declare, #dbg_value) and inline metadata references
+-- @param ir_lines: array of LLVM IR lines
+-- @return: filtered array with debug metadata removed
+function M.filter_debug_metadata(ir_lines)
+  local filtered = {}
+
+  for _, line in ipairs(ir_lines) do
+    -- Skip lines that are ONLY debug intrinsics (entire line)
+    -- Matches:   #dbg_declare(ptr %a.addr, !14, !DIExpression(), !15)
+    --            #dbg_value(i32 %10, !26, !DIExpression(), !47)
+    if line:match("^%s*#dbg_") then
+      goto continue
+    end
+
+    -- Filter out metadata DEFINITIONS:
+    -- - !123 = !{...}  (numbered metadata)
+    -- - !llvm.ident, !llvm.module.flags, etc.
+    local is_metadata_def = line:match("^![0-9]+ = ") or      -- !123 = !{...}
+                            line:match("^!llvm%.") or          -- !llvm.ident = !{...}
+                            line:match("^!%.")                  -- !.something
+
+    if is_metadata_def then
+      goto continue
+    end
+
+    -- Remove inline metadata REFERENCES from instruction lines
+    -- This handles: !dbg !XX, !tbaa !XX, !llvm.loop !XX, etc.
+    local cleaned_line = line
+
+    -- Remove metadata at end of instructions: ", !dbg !19", ", !tbaa !43", etc.
+    -- Pattern: comma, optional spaces, !, word chars/dots, space, !, digits
+    cleaned_line = cleaned_line:gsub(",%s*![%w%.]+%s+![0-9]+", "")
+
+    -- Remove any remaining standalone metadata refs: ", !15"
+    cleaned_line = cleaned_line:gsub(",%s*![0-9]+", "")
+
+    -- Remove space-separated metadata (like on define lines): " !dbg !17"
+    -- This appears without a comma, e.g., "define ... ) #0 !dbg !17 {"
+    cleaned_line = cleaned_line:gsub("%s+![%w%.]+%s+![0-9]+", "")
+
+    table.insert(filtered, cleaned_line)
+
+    ::continue::
+  end
+
+  return filtered
+end
+
 return M

@@ -386,6 +386,12 @@ function M.show_diff(index)
     end
   end
 
+  -- Filter debug metadata if configured
+  if M.state.config and M.state.config.display and M.state.config.display.strip_debug_metadata then
+    before_ir = ir_utils.filter_debug_metadata(before_ir)
+    after_ir = ir_utils.filter_debug_metadata(after_ir)
+  end
+
   -- Update buffers
   vim.api.nvim_buf_set_option(M.state.before_bufnr, 'modifiable', true)
   vim.api.nvim_buf_set_lines(M.state.before_bufnr, 0, -1, false, before_ir)

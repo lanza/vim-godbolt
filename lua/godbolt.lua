@@ -113,34 +113,6 @@ local function has_debug_disabling_flags(args)
          args:match("%-ggdb0%s") or args:match("%-ggdb0$")
 end
 
--- Filter debug metadata from LLVM IR for display
--- @param ir_lines: array of LLVM IR lines
--- @return: filtered_lines (for display), original_lines (for line mapping)
-local function filter_debug_metadata(ir_lines)
-  local filtered = {}
-
-  for _, line in ipairs(ir_lines) do
-    -- Keep non-metadata lines and attributes
-    -- Filter out:
-    -- - !123 = !{...}  (numbered metadata)
-    -- - !llvm.ident, !llvm.module.flags, etc.
-    -- Keep:
-    -- - attributes #0 = { ... }  (function attributes)
-    -- - All actual IR code
-    local is_metadata = line:match("^![0-9]+ = ") or      -- !123 = !{...}
-                        line:match("^!llvm%.") or          -- !llvm.ident = !{...}
-                        line:match("^!%.") or              -- !.something
-                        line:match("^; ModuleID") or       -- ; ModuleID (optional, can keep)
-                        line:match("^source_filename")     -- source_filename (optional, can keep)
-
-    if not is_metadata then
-      table.insert(filtered, line)
-    end
-  end
-
-  return filtered
-end
-
 -- Main godbolt function
 function M.godbolt(args_str)
   args_str = args_str or ""
@@ -268,7 +240,8 @@ function M.godbolt(args_str)
   -- Filter debug metadata for display if configured
   local display_lines = output_lines
   if output_type == "llvm" and M.config.display and M.config.display.strip_debug_metadata then
-    display_lines = filter_debug_metadata(output_lines)
+    local ir_utils = require('godbolt.ir_utils')
+    display_lines = ir_utils.filter_debug_metadata(output_lines)
   end
 
   vim.api.nvim_buf_set_lines(0, 0, -1, false, display_lines)
@@ -484,9 +457,10 @@ function M.godbolt_pipeline(args_str)
   -- Setup pipeline viewer (it will create its own 3-pane layout)
   local ok, pipeline_viewer = pcall(require, 'godbolt.pipeline_viewer')
   if ok then
-    -- Merge pipeline config with line_mapping config
+    -- Merge pipeline config with line_mapping and display configs
     local viewer_config = vim.tbl_deep_extend("force", M.config.pipeline, {
-      line_mapping = M.config.line_mapping
+      line_mapping = M.config.line_mapping,
+      display = M.config.display
     })
 
     pipeline_viewer.setup(source_bufnr, file, passes, viewer_config)
