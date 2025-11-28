@@ -257,6 +257,20 @@ function M.group_passes()
       end
       group.has_changes = has_changes  -- Store for highlighting
       group.folded = true  -- Always start folded
+
+      -- Sort functions within group: changed first, then by original order
+      table.sort(group.functions, function(a, b)
+        local a_changed = M.state.passes[a.original_index].changed
+        local b_changed = M.state.passes[b.original_index].changed
+
+        -- If one has changes and the other doesn't, changed comes first
+        if a_changed ~= b_changed then
+          return a_changed
+        end
+
+        -- Otherwise, sort by original order (index in pipeline)
+        return a.original_index < b.original_index
+      end)
     end
   end
 
@@ -508,7 +522,7 @@ function M.apply_pass_list_highlights()
 
       -- Highlight function name (starts at position 9: "     ●   ")
       local name_start = 9
-      local highlight_group = func_changed and "GodboltPipelineFunctionEntry" or "GodboltPipelineUnchanged"
+      local highlight_group = func_changed and "GodboltPipelinePassName" or "GodboltPipelineUnchanged"
       vim.api.nvim_buf_add_highlight(bufnr, ns_id, highlight_group, line_num, name_start, -1)
 
     -- Group header lines "> 5. ▸ [F] PassName (N functions)" or " 10. ▾ [F] PassName..."
