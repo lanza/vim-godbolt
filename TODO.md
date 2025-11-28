@@ -4,19 +4,35 @@
 
 ### Pipeline Viewer Enhancements
 - [x] **Pass Grouping with Fold/Unfold** - Organize function passes by name
-  - Group function/CGSCC passes together (e.g., "SROAPass (3 functions)")
-  - Collapsible groups with `>` and `v` fold icons
+  - Group function/CGSCC passes together using open groups algorithm
+  - Merges interleaved passes (e.g., FuncPassF on main, FuncPassG on main, FuncPassF on foo → groups correctly)
+  - Module passes close all open groups, creating clean boundaries
+  - Collapsible groups with `▸` and `▾` fold icons
   - `o` key to toggle folds, Enter to fold/select
   - Visual hierarchy with indented function entries
-- [x] **Smart Navigation** - Tab/Shift-Tab only jump to changed passes
-  - Efficient navigation through meaningful transformations
-  - j/k for all passes, Tab/Shift-Tab for changed passes only
-  - Automatic skip of unchanged passes in smart mode
+  - All groups start folded (even 1000+ function groups) for usability
+- [x] **Smart Navigation** - Tab/Shift-Tab jump to changed passes with auto-unfold
+  - Tab automatically unfolds groups when navigating to them
+  - j/k walks all visible lines (modules, group headers, function entries)
+  - No navigation loops - can move up/down freely
+  - Position-based selection for duplicate function entries
 - [x] **Enhanced Highlighting** - Better visual distinction
   - Custom highlight groups for fold icons, group headers, function entries
+  - Changed function passes use same color as changed module passes
   - Theme-aware colors (dark/light background support)
   - Different colors for Module [M], Function [F], and CGSCC [C] scopes
-  - Distinct highlighting for selected markers
+  - Distinct highlighting for selected markers (>, ●)
+  - Gray out unchanged passes for easy visual scanning
+- [x] **Function Sorting** - Changed functions appear first
+  - Functions within groups sorted by: changed first, then original order
+  - Makes it easy to see which functions had changes when unfolding
+- [x] **UTF-8 Pattern Matching** - Proper handling of fold icons and markers
+  - Correct handling of multi-byte UTF-8 characters (▸▾●)
+  - Right-aligned pass numbers (handles both single and double digits)
+- [x] **Comprehensive Test Suite** - 24 tests covering all functionality
+  - Pattern matching tests (module, group, function entries)
+  - Folding behavior tests (all groups start folded, has_changes flag)
+  - Navigation specification tests (documenting expected behavior)
 - [x] **Configurable Stats Logging** - Control message output
   - `show_stats = false` by default (prevents message line wrapping)
   - Can be enabled via config: `pipeline = { show_stats = true }`
@@ -45,6 +61,11 @@
 ## Pending Features
 
 ### Pipeline Viewer - Future Enhancements
+- [ ] **Loop Pass Support** - Track loop-level optimizations
+  - Parse loop scope passes (e.g., "LoopFullUnrollPass on loop %for.body in function foo")
+  - Display loop hierarchy within functions
+  - Show which loops were optimized
+  - Highlight loop transformations (unrolling, vectorization, etc.)
 - [ ] **Capture-Time Filtering** - Filter functions during compilation
   - Use `--filter-print-funcs=<regex>` LLVM flag
   - Config option: `pipeline = { filter_funcs = "main|foo|bar" }`

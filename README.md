@@ -232,15 +232,33 @@ Module passes show the full module before/after, while function passes show only
 **Keybindings in Pipeline Viewer:**
 
 In the pass list pane:
-- `j`/`k`, `↓`/`↑`, or `Tab`/`Shift-Tab` - Navigate between passes
-- `Enter` - Select and view the pass under cursor
-- `q` - Quit the pipeline viewer
-- `g[` - Jump to first pass
-- `g]` - Jump to last pass
+- **`j`/`k`** - Navigate through all visible lines (modules, group headers, function entries)
+- **`Tab`/`Shift-Tab`** - Jump to next/previous changed pass (auto-unfolds groups)
+- **`Enter`** - Select and view the pass/function under cursor
+- **`o`** - Toggle fold/unfold for groups (▸ → ▾)
+- **`q`** - Quit the pipeline viewer
+- **`g[`** - Jump to first pass
+- **`g]`** - Jump to last pass
 
 In the before/after panes:
-- `]p` / `[p` or `Tab` / `Shift-Tab` - Next/Previous pass
+- **`]p` / `[p`** or **`Tab` / `Shift-Tab`** - Next/Previous pass
 - Standard diff commands (`]c`, `[c` for next/previous diff)
+
+**Pipeline Viewer Features:**
+
+- **Smart Grouping**: Function/CGSCC passes are grouped together
+  - Groups display as `▸ [F] PassName (N functions)` when folded
+  - Press `o` or `Enter` to unfold and see individual functions
+  - Module passes (`[M]`) automatically close all open groups
+  - Interleaved passes are correctly merged into groups
+- **Auto-Unfold Navigation**: `Tab` automatically unfolds groups when navigating to changed passes
+- **Sorted Functions**: Within each group, changed functions appear first
+- **Visual Indicators**:
+  - `>` marks the currently selected pass/function
+  - `●` marks the selected function entry within an unfolded group
+  - Changed passes/functions are highlighted in color
+  - Unchanged passes/functions are grayed out
+- **All Groups Start Folded**: Even groups with 1000+ functions start folded for usability
 
 ### Link-Time Optimization (LTO)
 
