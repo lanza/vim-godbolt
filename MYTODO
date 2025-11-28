@@ -1,0 +1,2 @@
+* Add codegen and folds for both
+* make lazy via file output. check for diffs by linecount

@@ -312,6 +312,9 @@ function M.populate_pass_list()
   table.insert(lines, string.rep("-", #header))
   table.insert(lines, "")
 
+  -- Calculate number width based on total groups
+  local num_width = #tostring(#groups)
+
   for _, group in ipairs(groups) do
     if group.type == "module" then
       -- Single module pass
@@ -319,7 +322,7 @@ function M.populate_pass_list()
       local i = group.original_index
       local marker = (i == M.state.current_index) and ">" or " "
 
-      local line = string.format("%s%2d. [M] %s", marker, group.display_index, pass.name)
+      local line = string.format("%s%"..num_width.."d. [M] %s", marker, group.display_index, pass.name)
       table.insert(lines, line)
 
       -- Add stats if configured
@@ -369,7 +372,7 @@ function M.populate_pass_list()
       local marker = any_selected and ">" or " "
 
       -- Format: " 5. ▸ [F] PassName (N functions)" - aligned with module passes
-      local line = string.format("%s%2d. %s [%s] %s (%d %s)",
+      local line = string.format("%s%"..num_width.."d. %s [%s] %s (%d %s)",
         marker, group.display_index, fold_icon, scope_icon, group.pass_name, func_count,
         func_count == 1 and "function" or "functions")
       table.insert(lines, line)
@@ -378,8 +381,9 @@ function M.populate_pass_list()
       if not group.folded then
         for fn_idx, fn in ipairs(group.functions) do
           local fn_marker = (fn.original_index == M.state.current_index) and "●" or " "
-          -- Indent: 5 spaces (for " NN. ") + marker + 3 spaces + name
-          local fn_line = string.format("     %s   %s", fn_marker, fn.target)
+          -- Indent based on num_width: marker(1) + num_width + ". "(2) = total indent
+          local indent = string.rep(" ", 1 + num_width + 2)
+          local fn_line = string.format("%s%s   %s", indent, fn_marker, fn.target)
           table.insert(lines, fn_line)
 
           -- Add stats for this function's pass
@@ -481,6 +485,12 @@ function M.apply_pass_list_highlights()
 
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
+  -- Calculate number width for consistent indentation
+  local num_width = M.state.grouped_passes and #tostring(#M.state.grouped_passes) or 2
+  local fn_indent = 1 + num_width + 2  -- marker(1) + num_width + ". "(2)
+  local fn_marker_pos = fn_indent  -- Position of ● marker
+  local fn_name_start = fn_indent + 4  -- After "● " (1 byte) + 3 spaces
+
   for line_idx, line in ipairs(lines) do
     local line_num = line_idx - 1  -- Convert to 0-indexed
 
@@ -500,18 +510,16 @@ function M.apply_pass_list_highlights()
     elseif line:match("^Legend:") or line:match("^Keys:") then
       vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Comment", line_num, 0, -1)
 
-    -- Indented function entry "     ●   function_name" or "         function_name"
-    -- Note: Can't use [● ] character class with UTF-8
-    elseif line:match("^     ●   ") or line:match("^         ") then
+    -- Indented function entry - dynamically detect based on fn_indent
+    elseif line:match("^" .. string.rep(" ", fn_marker_pos) .. "[● ]") then
       -- Check if marker is ●
-      if line:match("^     ●") then
-        -- Highlight selection marker (● at position 5)
-        local marker_pos = 5  -- 0-indexed, 5 spaces then marker
-        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GodboltPipelineSelectedMarker", line_num, marker_pos, marker_pos + 3)  -- ● is 3 bytes in UTF-8
+      if line:sub(fn_marker_pos + 1, fn_marker_pos + 3) == "●" then
+        -- Highlight selection marker (● at dynamic position)
+        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GodboltPipelineSelectedMarker", line_num, fn_marker_pos, fn_marker_pos + 3)  -- ● is 3 bytes in UTF-8
       end
 
       -- Determine if this function's pass has changes
-      local func_name = line:match("^     ●   (.+)$") or line:match("^         (.+)$")
+      local func_name = line:match("^" .. string.rep(" ", fn_marker_pos) .. "●   (.+)$") or line:match("^" .. string.rep(" ", fn_indent) .. "   (.+)$")
       local func_changed = false
 
       if func_name and M.state.grouped_passes then
@@ -540,10 +548,9 @@ function M.apply_pass_list_highlights()
         end
       end
 
-      -- Highlight function name (starts at position 9: "     ●   ")
-      local name_start = 9
+      -- Highlight function name (starts after marker + 3 spaces)
       local highlight_group = func_changed and "GodboltPipelinePassName" or "GodboltPipelineUnchanged"
-      vim.api.nvim_buf_add_highlight(bufnr, ns_id, highlight_group, line_num, name_start, -1)
+      vim.api.nvim_buf_add_highlight(bufnr, ns_id, highlight_group, line_num, fn_name_start, -1)
 
     -- Group header lines "> 5. ▸ [F] PassName (N functions)" or " 10. ▾ [F] PassName..."
     -- Note: Can't use [▸▾] character class with UTF-8, must check explicitly
@@ -996,6 +1003,10 @@ local function update_markers_only(new_index)
   local ns_id = M.state.ns_id
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
+  -- Calculate number width for consistent indentation
+  local num_width = M.state.grouped_passes and #tostring(#M.state.grouped_passes) or 2
+  local fn_marker_pos = 1 + num_width + 2  -- marker(1) + num_width + ". "(2)
+
   vim.api.nvim_buf_set_option(bufnr, 'modifiable', true)
 
   -- Track which lines need marker updates (but don't modify yet)
@@ -1003,9 +1014,11 @@ local function update_markers_only(new_index)
   local new_marker_line = nil
   local new_fn_marker_line = nil
 
-  -- Find old markers to remove
+  -- Find old markers to remove - check for > at start and ● at dynamic position
   for i, line in ipairs(lines) do
-    if line:match("^>") or line:match("^     ●") then
+    if line:match("^>") then
+      old_marker_lines[i] = true
+    elseif line:sub(fn_marker_pos + 1, fn_marker_pos + 3) == "●" then
       old_marker_lines[i] = true
     end
   end
@@ -1055,7 +1068,8 @@ local function update_markers_only(new_index)
               local fn_count = 0
               for j = i + 1, #lines do
                 local fn_line = lines[j]
-                if fn_line:match("^      ") then -- Function entry (6 spaces + name)
+                -- Check if line starts with expected indentation
+                if fn_line:match("^" .. string.rep(" ", fn_marker_pos) .. "[● ]") then
                   fn_count = fn_count + 1
                   if fn_count == selected_fn_idx then
                     new_fn_marker_line = j
@@ -1081,9 +1095,9 @@ local function update_markers_only(new_index)
     if line:match("^>") then
       -- Replace > with space at position 0
       vim.api.nvim_buf_set_text(bufnr, line_idx - 1, 0, line_idx - 1, 1, {" "})
-    elseif line:match("^     ●") then
-      -- Replace ● with space at position 5 (● is 3 bytes)
-      vim.api.nvim_buf_set_text(bufnr, line_idx - 1, 5, line_idx - 1, 8, {" "})
+    elseif line:sub(fn_marker_pos + 1, fn_marker_pos + 3) == "●" then
+      -- Replace ● with space at dynamic position (● is 3 bytes)
+      vim.api.nvim_buf_set_text(bufnr, line_idx - 1, fn_marker_pos, line_idx - 1, fn_marker_pos + 3, {" "})
     end
   end
 
@@ -1092,7 +1106,7 @@ local function update_markers_only(new_index)
     vim.api.nvim_buf_set_text(bufnr, new_marker_line - 1, 0, new_marker_line - 1, 1, {">"})
   end
   if new_fn_marker_line then
-    vim.api.nvim_buf_set_text(bufnr, new_fn_marker_line - 1, 5, new_fn_marker_line - 1, 6, {"●"})
+    vim.api.nvim_buf_set_text(bufnr, new_fn_marker_line - 1, fn_marker_pos, new_fn_marker_line - 1, fn_marker_pos + 1, {"●"})
   end
 
   vim.api.nvim_buf_set_option(bufnr, 'modifiable', false)
