@@ -124,10 +124,72 @@ local function has_debug_disabling_flags(args)
 end
 
 -- Main godbolt function
-function M.godbolt(args_str)
+-- @param args_str: string of compiler arguments (optional)
+-- @param opts: table of options (optional)
+--   - output: "llvm", "asm", or "auto" (default: "auto")
+function M.godbolt(args_str, opts)
   args_str = args_str or ""
-  local file = vim.fn.expand("%")
+  opts = opts or {}
+  local output_preference = opts.output or "auto"
+
+  local file = vim.fn.expand("%:p")  -- Get absolute path
   local source_bufnr = vim.fn.bufnr("%")
+  local compile_directory = nil  -- Working directory from compile_commands.json
+  local cc_compiler = nil  -- Compiler from compile_commands.json
+
+  -- Try to get compiler flags from compile_commands.json if no args provided
+  if args_str == "" or args_str == "-g" then
+    local project = require('godbolt.project')
+    local compile_commands = require('godbolt.compile_commands')
+
+    local cc_path = project.find_compile_commands()
+    if cc_path then
+      local ok, cc_data = compile_commands.parse_compile_commands(cc_path)
+      if ok then
+        local entry = compile_commands.find_file_entry(cc_data, file)
+        if entry then
+          -- Store the directory to run compilation from
+          compile_directory = entry.directory
+
+          local parsed = compile_commands.parse_entry(entry)
+          if parsed then
+            -- Store compiler from compile_commands.json
+            cc_compiler = parsed.compiler
+
+            local relevant_flags = compile_commands.filter_relevant_flags(parsed.args)
+            if #relevant_flags > 0 then
+              -- Prepend compile_commands flags before user args
+              local cc_flags = table.concat(relevant_flags, " ")
+
+              -- Apply output preference when using compile_commands.json
+              if output_preference ~= "auto" then
+                -- Check if user has explicitly specified output format in args
+                local has_explicit_output = args_str:match("-emit%-") or
+                                           args_str:match("^%-S%s") or
+                                           args_str:match("%s%-S%s") or
+                                           args_str:match("%s%-S$")
+
+                if not has_explicit_output then
+                  if output_preference == "llvm" then
+                    cc_flags = cc_flags .. " -emit-llvm"
+                    print(string.format("[Godbolt] Auto-injecting -emit-llvm (output='%s')", output_preference))
+                  elseif output_preference == "asm" then
+                    -- Assembly is the default, no flag needed
+                    print(string.format("[Godbolt] Using assembly output (output='%s')", output_preference))
+                  end
+                end
+              end
+
+              print(string.format("[Godbolt] Using compiler from compile_commands.json: %s", cc_compiler))
+              print(string.format("[Godbolt] Using flags from compile_commands.json: %s", cc_flags))
+              print(string.format("[Godbolt] Working directory: %s", compile_directory))
+              args_str = args_str == "" and cc_flags or (cc_flags .. " " .. args_str)
+            end
+          end
+        end
+      end
+    end
+  end
 
   -- Parse first-line godbolt comment
   local first_line = vim.fn.getbufline(source_bufnr, 1, 1)[1] or ""
@@ -138,9 +200,16 @@ function M.godbolt(args_str)
     buffer_args = first_line:gsub("^;[%s]*godbolt:", "")
   end
 
+  -- Use relative path for display in commands
+  file = vim.fn.expand("%")
+
   -- Determine compiler and base args based on file type
   local compiler, lang_args, postprocess
-  if file:match("%.cpp$") then
+  if cc_compiler then
+    -- Use compiler from compile_commands.json
+    compiler = cc_compiler
+    lang_args = ""  -- compile_commands.json already includes language args
+  elseif file:match("%.cpp$") then
     compiler = M.config.clang .. "++"
     lang_args = M.config.cpp_args
   elseif file:match("%.c$") then
@@ -223,6 +292,12 @@ function M.godbolt(args_str)
 
   -- Remove the ".!" prefix for system execution
   local actual_cmd = cmd:gsub("^%.!", "")
+
+  -- If we have a compile_directory from compile_commands.json, execute from there
+  if compile_directory then
+    -- Change to the directory, execute command, then return
+    actual_cmd = string.format("cd %s && %s", vim.fn.shellescape(compile_directory), actual_cmd)
+  end
 
   -- Create temporary file for stderr
   local stderr_file = vim.fn.tempname()
@@ -490,10 +565,38 @@ end
 
 -- LTO (Link-Time Optimization) compilation for multiple files
 -- Compiles multiple source files with LTO enabled and links them
--- @param file_list: array of source file paths, or space-separated string
+-- @param file_list: array of source file paths, space-separated string, or nil (auto-detect from compile_commands.json)
 -- @param args_str: optional additional compiler/linker arguments
-function M.godbolt_lto(file_list, args_str)
+-- @param opts: table of options (optional)
+--   - output: "llvm", "asm", or "auto" (default: "auto")
+function M.godbolt_lto(file_list, args_str, opts)
   args_str = args_str or ""
+  opts = opts or {}
+  local output_preference = opts.output or "auto"
+
+  -- Auto-detect files from compile_commands.json if no files provided
+  if not file_list or file_list == "" or (type(file_list) == "table" and #file_list == 0) then
+    local project = require('godbolt.project')
+    local compile_commands = require('godbolt.compile_commands')
+
+    local cc_path = project.find_compile_commands()
+    if not cc_path then
+      print("[LTO] Error: No source files provided and no compile_commands.json found")
+      print("[LTO] Usage: :GodboltLTO file1.c file2.c [args]")
+      print("[LTO] Or create compile_commands.json in your project root")
+      return
+    end
+
+    print(string.format("[LTO] Found compile_commands.json: %s", cc_path))
+    local ok, cc_data = compile_commands.parse_compile_commands(cc_path)
+    if not ok then
+      print(string.format("[LTO] Error parsing compile_commands.json: %s", cc_data))
+      return
+    end
+
+    file_list = compile_commands.get_all_source_files(cc_data)
+    print(string.format("[LTO] Auto-detected %d files from compile_commands.json", #file_list))
+  end
 
   -- Parse file list if it's a string
   if type(file_list) == "string" then
@@ -618,10 +721,38 @@ function M.godbolt_lto(file_list, args_str)
 end
 
 -- LTO Pipeline Viewer - Visualize LTO optimization passes for multiple files
--- @param file_list: array of source file paths, or space-separated string
+-- @param file_list: array of source file paths, space-separated string, or nil (auto-detect from compile_commands.json)
 -- @param args_str: optional arguments (opt level, extra flags)
-function M.godbolt_lto_pipeline(file_list, args_str)
+-- @param opts: table of options (optional)
+--   - output: "llvm", "asm", or "auto" (default: "auto", LTO always uses LLVM IR)
+function M.godbolt_lto_pipeline(file_list, args_str, opts)
   args_str = args_str or ""
+  opts = opts or {}
+  -- LTO always outputs LLVM IR, but accept opts for API consistency
+
+  -- Auto-detect files from compile_commands.json if no files provided
+  if not file_list or file_list == "" or (type(file_list) == "table" and #file_list == 0) then
+    local project = require('godbolt.project')
+    local compile_commands = require('godbolt.compile_commands')
+
+    local cc_path = project.find_compile_commands()
+    if not cc_path then
+      print("[LTO Pipeline] Error: No source files provided and no compile_commands.json found")
+      print("[LTO Pipeline] Usage: :GodboltLTOPipeline file1.c file2.c [-O2]")
+      print("[LTO Pipeline] Or create compile_commands.json in your project root")
+      return
+    end
+
+    print(string.format("[LTO Pipeline] Found compile_commands.json: %s", cc_path))
+    local ok, cc_data = compile_commands.parse_compile_commands(cc_path)
+    if not ok then
+      print(string.format("[LTO Pipeline] Error parsing compile_commands.json: %s", cc_data))
+      return
+    end
+
+    file_list = compile_commands.get_all_source_files(cc_data)
+    print(string.format("[LTO Pipeline] Auto-detected %d files from compile_commands.json", #file_list))
+  end
 
   -- Parse file list if it's a string
   if type(file_list) == "string" then
@@ -737,6 +868,88 @@ function M.godbolt_lto_pipeline(file_list, args_str)
 
   -- Trigger autocommand event
   vim.cmd("doautocmd User GodboltLTOPipeline")
+end
+
+-- LTO Comparison View - Show Before/After LTO with statistics
+-- @param file_list: array of source file paths, space-separated string, or nil (auto-detect from compile_commands.json)
+-- @param args_str: optional arguments (opt level, extra flags)
+-- @param opts: table of options (optional)
+--   - output: "llvm", "asm", or "auto" (default: "auto", LTO always uses LLVM IR)
+function M.godbolt_lto_compare(file_list, args_str, opts)
+  args_str = args_str or ""
+  opts = opts or {}
+  -- LTO always outputs LLVM IR, but accept opts for API consistency
+
+  -- Auto-detect files from compile_commands.json if no files provided
+  if not file_list or file_list == "" or (type(file_list) == "table" and #file_list == 0) then
+    local project = require('godbolt.project')
+    local compile_commands = require('godbolt.compile_commands')
+
+    local cc_path = project.find_compile_commands()
+    if not cc_path then
+      print("[LTO Compare] Error: No source files provided and no compile_commands.json found")
+      print("[LTO Compare] Usage: :GodboltLTOCompare file1.c file2.c [-O2]")
+      print("[LTO Compare] Or create compile_commands.json in your project root")
+      return
+    end
+
+    print(string.format("[LTO Compare] Found compile_commands.json: %s", cc_path))
+    local ok, cc_data = compile_commands.parse_compile_commands(cc_path)
+    if not ok then
+      print(string.format("[LTO Compare] Error parsing compile_commands.json: %s", cc_data))
+      return
+    end
+
+    file_list = compile_commands.get_all_source_files(cc_data)
+    print(string.format("[LTO Compare] Auto-detected %d files from compile_commands.json", #file_list))
+  end
+
+  -- Parse file list if it's a string
+  if type(file_list) == "string" then
+    file_list = vim.split(file_list, "%s+")
+  end
+
+  -- Validate input
+  if not file_list or #file_list == 0 then
+    print("[LTO Compare] Error: No source files provided")
+    print("[LTO Compare] Usage: :GodboltLTOCompare file1.c file2.c [-O2]")
+    return
+  end
+
+  if #file_list < 2 then
+    print("[LTO Compare] Warning: LTO works best with multiple files")
+  end
+
+  -- Expand file paths
+  local expanded_files = {}
+  for _, file in ipairs(file_list) do
+    local expanded = vim.fn.expand(file)
+    if vim.fn.filereadable(expanded) == 1 then
+      table.insert(expanded_files, expanded)
+    else
+      print(string.format("[LTO Compare] Error: File not found: %s", file))
+      return
+    end
+  end
+
+  -- Parse optimization level from args
+  local opt_level = args_str:match("%-O%d") or "-O2"
+  local extra_args = args_str:gsub("%-O%d", ""):gsub("^%s+", ""):gsub("%s+$", "")
+
+  print(string.format("[LTO Compare] Comparing %d files: Before vs After %s...", #expanded_files, opt_level))
+
+  -- Load comparison module
+  local ok, lto_comparison = pcall(require, 'godbolt.lto_comparison')
+  if not ok then
+    print("[LTO Compare] Error: Failed to load LTO comparison module")
+    return
+  end
+
+  -- Show comparison view
+  lto_comparison.show_lto_comparison(expanded_files, opt_level, extra_args)
+
+  -- Trigger autocommand event
+  vim.cmd("doautocmd User GodboltLTOCompare")
 end
 
 return M

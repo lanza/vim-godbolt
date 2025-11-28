@@ -3,8 +3,8 @@
 -- Create the Godbolt command
 vim.api.nvim_create_user_command('Godbolt', function(opts)
   local godbolt = require('godbolt')
-  -- opts.args is a single string, pass it as is
-  godbolt.godbolt(opts.args)
+  -- Default to LLVM IR when using compile_commands.json
+  godbolt.godbolt(opts.args, { output = "llvm" })
 end, {
   nargs = '*',
   desc = 'Compile current file to assembly/IR using Godbolt-style compilation'
@@ -24,24 +24,45 @@ vim.api.nvim_create_user_command('GodboltLTO', function(opts)
   local godbolt = require('godbolt')
   -- Split args into files and additional arguments
   local args_str = opts.args or ""
-  local files = vim.split(args_str, "%s+")
-  godbolt.godbolt_lto(files, "")
+  if args_str == "" then
+    -- No args - auto-detect from compile_commands.json
+    godbolt.godbolt_lto(nil, "", { output = "llvm" })
+  else
+    local files = vim.split(args_str, "%s+")
+    godbolt.godbolt_lto(files, "", { output = "llvm" })
+  end
 end, {
-  nargs = '+',
+  nargs = '*',  -- Changed from '+' to '*' to allow 0 arguments
   complete = 'file',
-  desc = 'Compile and link multiple files with LTO (Link-Time Optimization)'
+  desc = 'Compile and link multiple files with LTO (auto-detects from compile_commands.json if no args)'
 })
 
 -- Create the GodboltLTOPipeline command for LTO pass visualization
 vim.api.nvim_create_user_command('GodboltLTOPipeline', function(opts)
   local godbolt = require('godbolt')
   local args_str = opts.args or ""
-  local files = vim.split(args_str, "%s+")
-  godbolt.godbolt_lto_pipeline(files, "")
+  if args_str == "" then
+    -- No args - auto-detect from compile_commands.json
+    godbolt.godbolt_lto_pipeline(nil, "", { output = "llvm" })
+  else
+    local files = vim.split(args_str, "%s+")
+    godbolt.godbolt_lto_pipeline(files, "", { output = "llvm" })
+  end
 end, {
-  nargs = '+',
+  nargs = '*',  -- Changed from '+' to '*' to allow 0 arguments
   complete = 'file',
-  desc = 'Visualize LTO optimization pipeline for multiple files'
+  desc = 'Visualize LTO optimization pipeline (auto-detects from compile_commands.json if no args)'
+})
+
+-- Create the GodboltLTOCompare command for Before/After LTO comparison
+vim.api.nvim_create_user_command('GodboltLTOCompare', function(opts)
+  local godbolt = require('godbolt')
+  local args_str = opts.args or ""
+  godbolt.godbolt_lto_compare(args_str, "", { output = "llvm" })
+end, {
+  nargs = '*',  -- Changed from '+' to '*' to allow 0 arguments
+  complete = 'file',
+  desc = 'Show Before/After LTO comparison with statistics (auto-detects from compile_commands.json if no args)'
 })
 
 -- Pipeline navigation commands
