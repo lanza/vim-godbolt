@@ -143,6 +143,13 @@ function M.godbolt(args_str, opts)
     local compile_commands = require('godbolt.compile_commands')
 
     local cc_path = project.find_compile_commands()
+
+    -- When using compile_commands.json, default to LLVM IR (unless explicitly set to "asm")
+    -- This provides better UX since LLVM IR is more useful for analysis
+    if cc_path and output_preference == "auto" then
+      output_preference = "llvm"
+    end
+
     if cc_path then
       local ok, cc_data = compile_commands.parse_compile_commands(cc_path)
       if ok then
