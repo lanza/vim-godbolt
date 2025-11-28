@@ -10,9 +10,9 @@ function M.compile_to_object(source_file, output_obj, compiler, extra_args)
   compiler = compiler or "clang"
   extra_args = extra_args or ""
 
-  -- Build command: compile with LTO and debug info
+  -- Build command: compile with LTO, debug info, and introspection flags
   local cmd = string.format(
-    '%s -c -flto -g %s "%s" -o "%s" 2>&1',
+    '%s -c -flto -g -fno-discard-value-names -fstandalone-debug %s "%s" -o "%s" 2>&1',
     compiler,
     extra_args,
     source_file,
@@ -103,13 +103,13 @@ function M.link_with_clang(source_files, output_ll, compiler, extra_args)
     return false, "No source files provided"
   end
 
-  -- Build command: compile and link with LTO, emit IR
+  -- Build command: compile and link with LTO, emit IR, and introspection flags
   local src_list = table.concat(vim.tbl_map(function(f)
     return '"' .. f .. '"'
   end, source_files), " ")
 
   local cmd = string.format(
-    '%s -flto -g -Wl,-plugin-opt=emit-llvm %s %s -o "%s" 2>&1',
+    '%s -flto -g -fno-discard-value-names -fstandalone-debug -Wl,-plugin-opt=emit-llvm %s %s -o "%s" 2>&1',
     compiler,
     extra_args,
     src_list,
@@ -248,10 +248,12 @@ function M.run_lto_pipeline(source_files, opt_level, extra_args)
   -- Build command: Actually link with LTO to capture link-time passes
   -- Key: We must actually perform linking for LTO passes to run
   -- -g: Generate debug info (required for DIFile and DISubprogram metadata)
+  -- -fno-discard-value-names: Keep SSA value names for readability
+  -- -fstandalone-debug: Complete debug info (not minimal)
   -- -Wl,-mllvm,-print-after-all: Print IR after each pass
   -- -Wl,-mllvm,-print-before-all: Print IR before each pass (needed for accurate diff attribution)
   local cmd = string.format(
-    '%s -flto -g %s %s -Wl,-mllvm,-print-after-all -Wl,-mllvm,-print-before-all %s -o "%s" 2>&1',
+    '%s -flto -g -fno-discard-value-names -fstandalone-debug %s %s -Wl,-mllvm,-print-after-all -Wl,-mllvm,-print-before-all %s -o "%s" 2>&1',
     compiler,
     opt_level,
     extra_args,

@@ -31,7 +31,7 @@ M.config = {
   -- Pipeline configuration
   pipeline = {
     enabled = true,
-    show_stats = true,
+    show_stats = false,            -- Disable stats logging by default (prints to messages, causes line wrapping)
     start_at_final = true,
     filter_unchanged = false,
   },
@@ -245,10 +245,11 @@ function M.godbolt(args_str, opts)
   if args_str ~= "" then table.insert(cmd_args, args_str) end
   table.insert(cmd_args, "-S")
 
-  -- Add compiler-specific flags
+  -- Add compiler-specific flags for better introspection
   if not file:match("%.ll$") and not file:match("%.swift$") then
     table.insert(cmd_args, "-fno-asynchronous-unwind-tables")
-    table.insert(cmd_args, "-fno-discard-value-names")
+    table.insert(cmd_args, "-fno-discard-value-names")  -- Keep SSA value names
+    table.insert(cmd_args, "-fstandalone-debug")        -- Complete debug info
   end
 
   if file:match("%.swift$") then
