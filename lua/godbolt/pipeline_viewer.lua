@@ -76,45 +76,45 @@ function M.setup(source_bufnr, input_file, passes, config)
   vim.schedule(function()
     print("[Pipeline] Computing pass changes...")
 
-    -- Pre-compute which passes actually changed IR
+    -- Pre-compute which passes actually changed IR (now async with callback)
     -- This allows us to gray out no-op passes in the list
-    M.compute_pass_changes()
-
-    -- Start at first/last changed pass
-    if config.start_at_final then
-      -- Find last changed pass
-      M.state.current_index = #passes
-      for i = #passes, 1, -1 do
-        if passes[i].changed then
-          M.state.current_index = i
-          break
+    M.compute_pass_changes(function()
+      -- Start at first/last changed pass
+      if config.start_at_final then
+        -- Find last changed pass
+        M.state.current_index = #passes
+        for i = #passes, 1, -1 do
+          if passes[i].changed then
+            M.state.current_index = i
+            break
+          end
+        end
+      else
+        -- Find first changed pass
+        M.state.current_index = 1
+        for i = 1, #passes do
+          if passes[i].changed then
+            M.state.current_index = i
+            break
+          end
         end
       end
-    else
-      -- Find first changed pass
-      M.state.current_index = 1
-      for i = 1, #passes do
-        if passes[i].changed then
-          M.state.current_index = i
-          break
-        end
-      end
-    end
 
-    print("[Pipeline] Building pass list...")
+      print("[Pipeline] Building pass list...")
 
-    -- Populate pass list
-    M.populate_pass_list()
+      -- Populate pass list
+      M.populate_pass_list()
 
-    print("[Pipeline] Loading initial diff...")
+      print("[Pipeline] Loading initial diff...")
 
-    -- Show initial diff
-    M.show_diff(M.state.current_index)
+      -- Show initial diff
+      M.show_diff(M.state.current_index)
 
-    -- Position cursor on first pass entry (header + separator + blank + first pass = line 4)
-    pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, {4, 0})
+      -- Position cursor on first pass entry (header + separator + blank + first pass = line 4)
+      pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, {4, 0})
 
-    print("[Pipeline] ✓ Ready")
+      print("[Pipeline] ✓ Ready")
+    end)
   end)
 end
 
@@ -682,26 +682,35 @@ end
 
 -- Pre-compute which passes actually changed IR
 -- Sets pass.changed (boolean) and pass.diff_stats (table) for each pass
-function M.compute_pass_changes()
+-- Now fully async with callback to avoid UI freeze on large pass counts
+function M.compute_pass_changes(callback)
   local ir_utils = require('godbolt.ir_utils')
   local pipeline = require('godbolt.pipeline')
   local total_passes = #M.state.passes
-  local chunk_size = 50  -- Process in chunks to show progress
+  local chunk_size = 50  -- Process in chunks
   local start_time = vim.loop.hrtime()
   local last_print_time = start_time
 
-  for chunk_start = 1, total_passes, chunk_size do
+  local function process_chunk(chunk_start)
+    -- Check if we're done
+    if chunk_start > total_passes then
+      if callback then callback() end
+      return
+    end
+
     local chunk_end = math.min(chunk_start + chunk_size - 1, total_passes)
 
-    -- Show progress every 2 seconds (not every chunk)
+    -- Show progress every 2 seconds
     local current_time = vim.loop.hrtime()
     local elapsed_since_print = (current_time - last_print_time) / 1e9
     if chunk_start > 1 and elapsed_since_print >= 2.0 then
       local total_elapsed = (current_time - start_time) / 1e9
       print(string.format("[Pipeline] Computing... (%d/%d passes, %ds elapsed)", chunk_end, total_passes, math.floor(total_elapsed)))
       last_print_time = current_time
+      vim.cmd('redraw')  -- Force UI update
     end
 
+    -- Process this chunk synchronously
     for index = chunk_start, chunk_end do
       local pass = M.state.passes[index]
 
@@ -750,11 +759,14 @@ function M.compute_pass_changes()
       }
     end
 
-    -- Yield to event loop after each chunk to keep UI responsive
-    if chunk_end < total_passes then
-      vim.cmd('redraw')
-    end
+    -- Schedule next chunk (yields to event loop for UI responsiveness)
+    vim.schedule(function()
+      process_chunk(chunk_start + chunk_size)
+    end)
   end
+
+  -- Start processing first chunk
+  process_chunk(1)
 end
 
 -- Get before IR for a given pass index
