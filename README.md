@@ -75,6 +75,35 @@ use {
 - `swiftc` for Swift compilation (optional)
 - `opt` (LLVM optimizer) for LLVM IR optimization and pipeline viewer (optional)
 
+## Lua API
+
+All commands have corresponding Lua functions that accept an options table for programmatic control:
+
+```lua
+local gb = require('godbolt')
+
+-- Basic compilation with output preference
+gb.godbolt("", { output = "llvm" })    -- Force LLVM IR output
+gb.godbolt("", { output = "asm" })     -- Force assembly output
+gb.godbolt("", { output = "auto" })    -- Auto-detect (default)
+
+-- LTO functions (always output LLVM IR)
+gb.godbolt_lto(nil, "", { output = "llvm" })           -- Auto-detect files
+gb.godbolt_lto({"main.c", "util.c"}, "-O2", { output = "llvm" })
+
+gb.godbolt_lto_pipeline(nil, "-O2", { output = "llvm" })
+gb.godbolt_lto_compare(nil, "-O3", { output = "llvm" })
+```
+
+**Output Preference Behavior:**
+- `output = "llvm"`: Auto-injects `-emit-llvm` when using compile_commands.json
+- `output = "asm"`: Uses assembly output (default for clang)
+- `output = "auto"`: No injection, uses compile_commands.json flags as-is
+- Default for `:Godbolt` command: `"llvm"` (most useful for code inspection)
+- Default for LTO commands: `"llvm"` (LTO always outputs LLVM IR)
+
+When `output = "llvm"` is set and compile_commands.json is used, the plugin will automatically add `-emit-llvm` to the compiler flags unless you explicitly specify `-emit-*` or `-S` in your arguments.
+
 ## Configuration
 
 Configure the plugin in your `init.lua`:
@@ -130,9 +159,22 @@ All fields are optional and will use sensible defaults if not specified.
 
 Compiles the current file to assembly/IR in a new split window.
 
-Examples:
+**Auto-Detection from compile_commands.json:**
+
+If you run `:Godbolt` without arguments, it will automatically use compiler flags from `compile_commands.json` for the current file if found:
 ```vim
-:Godbolt              " Basic compilation
+" Auto-detect compiler flags from compile_commands.json
+:Godbolt
+
+" Or manually specify flags (overrides compile_commands.json)
+:Godbolt -O3 -march=native
+```
+
+The plugin extracts flags like `-O2`, `-std=c++20`, `-I`, `-D` from your build system configuration and applies them automatically.
+
+**Examples:**
+```vim
+:Godbolt              " Auto-detect flags or basic compilation
 :Godbolt -O3          " With optimization
 :Godbolt -O2 -march=native
 :Godbolt -emit-llvm   " Output LLVM IR instead of assembly
@@ -202,9 +244,42 @@ In the before/after panes:
 
 ### Link-Time Optimization (LTO)
 
-**`:GodboltLTO file1.c file2.c [file3.c ...]`**
+**`:GodboltLTO [file1.c file2.c ...]`**
 
 Compiles and links multiple source files with Link-Time Optimization (LTO), displaying the unified LLVM IR with cross-module optimizations applied.
+
+**Auto-Detection from compile_commands.json:**
+
+If you don't provide any files, the command will automatically detect your project structure:
+```vim
+" Auto-detect all files from compile_commands.json
+:GodboltLTO
+
+" Or manually specify files
+:GodboltLTO main.c utils.c
+```
+
+The plugin automatically detects your project root by looking for (in priority order):
+1. Version control markers (`.git`, `.hg`, `.svn`)
+2. Strong project markers (`compile_commands.json`, `Cargo.toml`, `package.json`)
+3. Build system files (`CMakeLists.txt`, `Makefile`)
+4. Config files (`.clang-format`, `.clang-tidy`)
+
+Then searches for `compile_commands.json` in:
+- Project root
+- `build/`
+- `cmake-build-*/`
+- `out/`
+- `Debug/` / `Release/`
+
+To generate `compile_commands.json`:
+```bash
+# CMake
+cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON .
+
+# Or create a symlink in project root
+ln -s build/compile_commands.json .
+```
 
 **What is LTO?**
 
@@ -216,6 +291,9 @@ Link-Time Optimization enables whole-program optimization across multiple source
 **Examples:**
 
 ```vim
+" Auto-detect from compile_commands.json
+:GodboltLTO
+
 " Compile two files with LTO
 :GodboltLTO main.c utils.c
 
@@ -232,13 +310,25 @@ Link-Time Optimization enables whole-program optimization across multiple source
 - Constants propagated across files
 - The unified LLVM IR after all link-time optimizations
 
-**`:GodboltLTOPipeline file1.c file2.c [file3.c ...] [-O2]`**
+**`:GodboltLTOPipeline [file1.c file2.c ...] [-O2]`**
 
 Visualizes the LLVM optimization passes that run during link-time optimization. Shows how the linker transforms your code across multiple files.
+
+**Auto-Detection:**
+```vim
+" Auto-detect from compile_commands.json
+:GodboltLTOPipeline -O2
+
+" Or manually specify files
+:GodboltLTOPipeline main.c utils.c -O2
+```
 
 **Examples:**
 
 ```vim
+" Auto-detect files, view with O2
+:GodboltLTOPipeline -O2
+
 " View LTO passes with O2 optimization
 :GodboltLTOPipeline main.c utils.c -O2
 
@@ -248,6 +338,109 @@ Visualizes the LLVM optimization passes that run during link-time optimization. 
 " View with O0 (minimal optimization)
 :GodboltLTOPipeline main.c utils.c -O0
 ```
+
+**`:GodboltLTOCompare [file1.c file2.c ...] [-O2]`**
+
+Opens a 3-pane comparison view showing before/after LTO transformation with detailed statistics:
+
+**Auto-Detection:**
+```vim
+" Auto-detect from compile_commands.json
+:GodboltLTOCompare -O2
+
+" Or manually specify files
+:GodboltLTOCompare main.c utils.c -O2
+```
+
+**Layout:**
+```
+┌─────────────────────┬─────────────────────┬─────────────────────┐
+│  Before LTO         │  LTO Statistics     │  After LTO          │
+│  (merged modules)   │  (center pane)      │  (color-coded IR)   │
+└─────────────────────┴─────────────────────┴─────────────────────┘
+```
+
+**Left Pane - Before LTO:**
+- Shows merged LLVM IR from all input files before link-time optimization
+- All functions are present (not yet eliminated)
+- Function calls are explicit (not yet inlined)
+
+**Center Pane - Statistics:**
+Shows detailed transformation metrics:
+
+1. **Source File Legend:**
+   ```
+   Source Files:
+     main.c    (highlighted in cyan in right pane)
+     utils.c   (highlighted in green in right pane)
+   ```
+
+2. **Cross-Module Inlining:**
+   ```
+   Cross-Module Inlining:
+     Function calls before LTO: 6
+     Function calls after LTO:  0
+     Total inlined: 6
+
+     Cross-module calls before: 6
+     Cross-module calls after:  0
+     Cross-module inlined: 6
+
+     Inlined by source file:
+       • main.c:
+         6 inlines from: utils.c
+   ```
+   This shows:
+   - How many function calls existed before LTO
+   - How many were inlined (disappeared)
+   - Which files had functions inlined from which other files
+   - Specifically tracks **cross-module inlining** (calls between different source files)
+
+3. **Dead Code Elimination:**
+   ```
+   Dead Code Elimination:
+     Functions removed: 4
+
+     By file:
+       • main.c: removed [compute]
+       • main.c: kept [main]
+       • utils.c: removed [add, multiply, square]
+   ```
+   This shows:
+   - Total number of functions eliminated
+   - Which functions from each source file were removed
+   - Which functions survived optimization
+   - Helps identify unused code across your project
+
+**Right Pane - After LTO (Color-Coded):**
+- Shows final optimized LLVM IR after all link-time optimizations
+- **Functions are syntax-highlighted by source file:**
+  - Code from `main.c` appears in one color (e.g., cyan)
+  - Code from `utils.c` appears in another color (e.g., green)
+  - Uses 8 distinct colors that wrap for more files
+- Highlights applied using `nvim_buf_add_highlight()` to entire function bodies
+- Makes it easy to see which file each remaining code came from
+
+**Examples:**
+
+```vim
+" Compare with O2 optimization
+:GodboltLTOCompare main.c utils.c -O2
+
+" Compare multiple files
+:GodboltLTOCompare src/main.c src/helpers.c src/math.c -O3
+```
+
+**Real Example Output:**
+
+Given `main.c` with `compute()` that calls `add()`, `multiply()`, and `square()` from `utils.c`:
+
+The statistics pane will show:
+- "6 inlines from utils.c" (the 3 functions were called from 2 places each)
+- "Functions removed: 4" (compute, add, multiply, square all got inlined and eliminated)
+- "kept [main]" (only main() survives)
+
+The right pane will show the final optimized `main()` with all the math computed inline, color-coded to show which parts came from which source file.
 
 **What you'll see:**
 - 70+ optimization pass stages during link-time

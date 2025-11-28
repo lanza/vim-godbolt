@@ -1,46 +1,24 @@
 # TODO & Feature Ideas
 
-## Completed Features
+## Completed Features ✓
 
-- [x] Remove debuginfo from the visible output in the LLVMIR buffer
-  - Filters debug intrinsics (`#dbg_declare`, `#dbg_value`)
-  - Removes inline metadata references (`, !dbg !XX`)
-  - Maintains line number mapping for filtered display
-- [x] Extract location info from `#dbg_declare` and `#dbg_value` intrinsics
-  - Parse debug info from intrinsics and apply to associated instructions
-  - Provides accurate source mapping even without inline `!dbg` metadata
-- [x] DILocalVariable usage for variable name annotations
-  - Virtual text annotations showing SSA register → source variable names
-  - Implemented via `debug_info.lua` module
-- [x] Complete column highlighting using DILocation metadata
-  - Extracts column information from `!DILocation` metadata
-  - Highlights exact source column position (not just line)
-  - Single-character precision by default
-- [x] **LTO (Link-Time Optimization) Support** - Phases 1 & 2 Complete
-  - **Phase 1: Basic LTO Compilation**
-    - `:GodboltLTO file1.c file2.c` - Compile and link multiple files with LTO
-    - Uses `ld.lld` with `-plugin-opt=emit-llvm` for realistic linking
-    - Converts bitcode to readable IR via `llvm-dis`
-    - Supports debug metadata filtering and line mapping
-    - Auto-detects compiler from file extension
-  - **Phase 2: Pipeline Viewer Integration**
-    - `:GodboltLTOPipeline file1.c file2.c -O2` - Visualize LTO passes
-    - Captures link-time optimization passes with `-Wl,-mllvm,-print-after-all`
-    - Reuses existing 3-pane pipeline viewer
-    - Shows cross-module optimizations (inlining, DCE, etc.)
-    - Module-scoped pass support
-  - **Remaining: Phase 3 - Enhanced Statistics & Visualization**
-    - Cross-module inlining metrics
-    - Color-code IR by source file (`!DIFile` parsing)
-    - Before/After LTO comparison view
-    - Dead code elimination statistics across files
-  - **Remaining: Phase 4 - Project Integration**
-    - Auto-detect project files from compile_commands.json
-    - Project root detection (git, CMake, etc.)
-    - Incremental recompilation with caching
-    - `:GodboltLTO` (no args) auto-compiles entire project
+- [x] **compile_commands.json Integration** - Project integration
+  - Auto-detect project build flags
+  - Respect build system configuration
+  - CMake/Ninja/Bear integration
+  - Priority-based project root detection
+  - Working directory and compiler extraction
 
----
+- [x] **LTO Comparison View** - Enhanced statistics and visualization
+  - Before/after LTO diff viewer
+  - Cross-module inlining detection
+  - Dead code elimination tracking
+  - File-specific coloring for multi-file analysis
+
+- [x] **Output Preference Control** - LLVM IR vs assembly selection
+  - Configurable output format (llvm/asm/auto)
+  - Smart defaults for compile_commands.json projects
+  - Auto-inject -emit-llvm when appropriate
 
 ## Pending Features
 
@@ -48,12 +26,6 @@
 - [ ] Complete assembly line mapping (parse `.loc` directives)
 
 ---
-
-### Project Integration
-- [ ] **compile_commands.json Integration** - Essential for real projects
-  - Auto-detect project build flags
-  - Respect build system configuration
-  - CMake/Meson/Bazel integration
 
 ### MLIR Support
 - [ ] **MLIR Pipeline Viewer** - Leverage existing pipeline infrastructure
