@@ -56,45 +56,66 @@ function M.setup(source_bufnr, input_file, passes, config)
   M.state.input_file = input_file
   M.state.config = config
 
-  -- Pre-compute which passes actually changed IR
-  -- This allows us to gray out no-op passes in the list
-  M.compute_pass_changes()
-
-  -- Start at first/last changed pass
-  if config.start_at_final then
-    -- Find last changed pass
-    M.state.current_index = #passes
-    for i = #passes, 1, -1 do
-      if passes[i].changed then
-        M.state.current_index = i
-        break
-      end
-    end
-  else
-    -- Find first changed pass
-    M.state.current_index = 1
-    for i = 1, #passes do
-      if passes[i].changed then
-        M.state.current_index = i
-        break
-      end
-    end
-  end
-
-  -- Create 3-pane layout
+  -- Create 3-pane layout FIRST (show UI immediately)
   M.create_layout()
 
-  -- Populate pass list
-  M.populate_pass_list()
+  -- Show "Computing..." message in pass list
+  vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', true)
+  vim.api.nvim_buf_set_lines(M.state.pass_list_bufnr, 0, -1, false, {
+    string.format("Optimization Pipeline (%d passes)", #passes),
+    string.rep("-", 40),
+    "",
+    "⏳ Computing pass changes...",
+  })
+  vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', false)
 
-  -- Show initial diff
-  M.show_diff(M.state.current_index)
-
-  -- Set up key mappings
+  -- Set up key mappings early
   M.setup_keymaps()
 
-  -- Position cursor on first pass entry (header + separator + blank + first pass = line 4)
-  vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {4, 0})
+  -- Defer heavy computation to next event loop tick
+  vim.schedule(function()
+    print("[Pipeline] Computing pass changes...")
+
+    -- Pre-compute which passes actually changed IR
+    -- This allows us to gray out no-op passes in the list
+    M.compute_pass_changes()
+
+    -- Start at first/last changed pass
+    if config.start_at_final then
+      -- Find last changed pass
+      M.state.current_index = #passes
+      for i = #passes, 1, -1 do
+        if passes[i].changed then
+          M.state.current_index = i
+          break
+        end
+      end
+    else
+      -- Find first changed pass
+      M.state.current_index = 1
+      for i = 1, #passes do
+        if passes[i].changed then
+          M.state.current_index = i
+          break
+        end
+      end
+    end
+
+    print("[Pipeline] Building pass list...")
+
+    -- Populate pass list
+    M.populate_pass_list()
+
+    print("[Pipeline] Loading initial diff...")
+
+    -- Show initial diff
+    M.show_diff(M.state.current_index)
+
+    -- Position cursor on first pass entry (header + separator + blank + first pass = line 4)
+    pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, {4, 0})
+
+    print("[Pipeline] ✓ Ready")
+  end)
 end
 
 -- Create 3-pane layout: pass list | before | after
@@ -414,12 +435,11 @@ local function setup_highlight_groups()
   -- Fold icons
   vim.api.nvim_set_hl(0, "GodboltPipelineFoldIcon", {link = "Special"})
 
-  -- Group headers (function/CGSCC groups)
+  -- Group headers (function/CGSCC groups) - use same color as module pass names
+  vim.api.nvim_set_hl(0, "GodboltPipelineGroupHeader", {link = "Identifier"})
   if bg == "dark" then
-    vim.api.nvim_set_hl(0, "GodboltPipelineGroupHeader", {fg = "#8fbcbb", bold = true})
     vim.api.nvim_set_hl(0, "GodboltPipelineGroupCount", {fg = "#88c0d0", italic = true})
   else
-    vim.api.nvim_set_hl(0, "GodboltPipelineGroupHeader", {fg = "#5e81ac", bold = true})
     vim.api.nvim_set_hl(0, "GodboltPipelineGroupCount", {fg = "#81a1c1", italic = true})
   end
 
@@ -658,51 +678,69 @@ end
 function M.compute_pass_changes()
   local ir_utils = require('godbolt.ir_utils')
   local pipeline = require('godbolt.pipeline')
+  local total_passes = #M.state.passes
+  local chunk_size = 50  -- Process in chunks to show progress
 
-  for index, pass in ipairs(M.state.passes) do
-    -- Get before IR - use stored before_ir if available, otherwise reconstruct
-    local before_ir
-    if pass.before_ir then
-      -- We have the actual before IR from -print-before-all
-      before_ir = pass.before_ir
-    else
-      -- Fallback to reconstruction (for backwards compatibility)
-      before_ir = M.get_before_ir_for_pass(index)
+  for chunk_start = 1, total_passes, chunk_size do
+    local chunk_end = math.min(chunk_start + chunk_size - 1, total_passes)
+
+    -- Show progress every chunk
+    if chunk_start > 1 then
+      print(string.format("[Pipeline] Computing... (%d/%d passes)", chunk_end, total_passes))
     end
 
-    local after_ir = pass.ir
+    for index = chunk_start, chunk_end do
+      local pass = M.state.passes[index]
 
-    -- Apply same filtering as display
-    if M.state.config and M.state.config.display and M.state.config.display.strip_debug_metadata then
-      before_ir = select(1, ir_utils.filter_debug_metadata(before_ir))
-      after_ir = select(1, ir_utils.filter_debug_metadata(after_ir))
-    end
-
-    -- Compare IR and count differences
-    local changed = false
-    local lines_changed = 0
-    local max_lines = math.max(#before_ir, #after_ir)
-
-    if #before_ir ~= #after_ir then
-      changed = true
-      lines_changed = math.abs(#after_ir - #before_ir)
-    end
-
-    for i = 1, max_lines do
-      local before_line = before_ir[i] or ""
-      local after_line = after_ir[i] or ""
-      if before_line ~= after_line then
-        changed = true
-        lines_changed = lines_changed + 1
+      -- Get before IR - use stored before_ir if available, otherwise reconstruct
+      local before_ir
+      if pass.before_ir then
+        -- We have the actual before IR from -print-before-all
+        before_ir = pass.before_ir
+      else
+        -- Fallback to reconstruction (for backwards compatibility)
+        before_ir = M.get_before_ir_for_pass(index)
       end
+
+      local after_ir = pass.ir
+
+      -- Apply same filtering as display
+      if M.state.config and M.state.config.display and M.state.config.display.strip_debug_metadata then
+        before_ir = select(1, ir_utils.filter_debug_metadata(before_ir))
+        after_ir = select(1, ir_utils.filter_debug_metadata(after_ir))
+      end
+
+      -- Compare IR and count differences
+      local changed = false
+      local lines_changed = 0
+      local max_lines = math.max(#before_ir, #after_ir)
+
+      if #before_ir ~= #after_ir then
+        changed = true
+        lines_changed = math.abs(#after_ir - #before_ir)
+      end
+
+      for i = 1, max_lines do
+        local before_line = before_ir[i] or ""
+        local after_line = after_ir[i] or ""
+        if before_line ~= after_line then
+          changed = true
+          lines_changed = lines_changed + 1
+        end
+      end
+
+      pass.changed = changed
+      pass.diff_stats = {
+        lines_changed = lines_changed,
+        lines_before = #before_ir,
+        lines_after = #after_ir,
+      }
     end
 
-    pass.changed = changed
-    pass.diff_stats = {
-      lines_changed = lines_changed,
-      lines_before = #before_ir,
-      lines_after = #after_ir,
-    }
+    -- Yield to event loop after each chunk to keep UI responsive
+    if chunk_end < total_passes then
+      vim.cmd('redraw')
+    end
   end
 end
 
@@ -951,36 +989,122 @@ function M.show_diff(index)
   end
 end
 
--- Update the cursor marker in pass list
--- IMPORTANT: index is the ORIGINAL index in M.state.passes, NOT display_index!
-function M.update_pass_list_cursor(index)
-  -- Just rebuild the entire list - it's simpler and more reliable
-  -- The populate function already handles marking the correct entry based on M.state.current_index
-  M.populate_pass_list()
+-- Lightweight marker-only update (O(1) instead of O(n))
+-- This updates ONLY the marker characters without rebuilding the entire list
+local function update_markers_only(new_index)
+  local bufnr = M.state.pass_list_bufnr
+  local ns_id = M.state.ns_id
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-  -- Find the line to move cursor to
-  -- Need to map original_index to actual line number in display
-  local target_line_num = nil
-  local lines = vim.api.nvim_buf_get_lines(M.state.pass_list_bufnr, 0, -1, false)
+  vim.api.nvim_buf_set_option(bufnr, 'modifiable', true)
 
-  -- PRIORITY 1: Look for function entry marker ● (most specific)
-  -- This ensures we land on the actual selected function entry, not the group header
+  -- Track which lines need marker updates (but don't modify yet)
+  local old_marker_lines = {}
+  local new_marker_line = nil
+  local new_fn_marker_line = nil
+
+  -- Find old markers to remove
   for i, line in ipairs(lines) do
-    if line:match("^     ●") then
-      target_line_num = i
-      break
+    if line:match("^>") or line:match("^     ●") then
+      old_marker_lines[i] = true
     end
   end
 
-  -- PRIORITY 2: If no ● found, look for group/module marker > (fallback)
-  if not target_line_num then
-    for i, line in ipairs(lines) do
-      if line:match("^>") then
-        target_line_num = i
+  -- Find which group/entry to mark based on new_index
+  local target_line_num = nil
+  local groups = M.state.grouped_passes
+
+  for group_idx, group in ipairs(groups) do
+    if group.type == "module" then
+      if group.original_index == new_index then
+        -- Find the line for this module pass
+        local pattern = string.format("^ %%s*%d%%. %%[M%%]", group.display_index)
+        for i, line in ipairs(lines) do
+          if line:match(pattern) then
+            new_marker_line = i
+            target_line_num = i
+            break
+          end
+        end
+        break
+      end
+    else
+      -- Function/CGSCC group - check if any function matches
+      local found_in_group = false
+      local selected_fn_idx = nil
+
+      for fn_idx, fn in ipairs(group.functions) do
+        if fn.original_index == new_index then
+          found_in_group = true
+          selected_fn_idx = fn_idx
+          break
+        end
+      end
+
+      if found_in_group then
+        -- Mark the group header
+        local header_pattern = string.format("^ %%s*%d%%. [▸▾]", group.display_index)
+        for i, line in ipairs(lines) do
+          if line:match(header_pattern) then
+            new_marker_line = i
+            target_line_num = i
+
+            -- If unfolded, also mark the specific function entry
+            if not group.folded then
+              -- Find the function entry line (it's after the group header)
+              local fn_count = 0
+              for j = i + 1, #lines do
+                local fn_line = lines[j]
+                if fn_line:match("^      ") then -- Function entry (6 spaces + name)
+                  fn_count = fn_count + 1
+                  if fn_count == selected_fn_idx then
+                    new_fn_marker_line = j
+                    target_line_num = j
+                    break
+                  end
+                else
+                  break -- End of function list
+                end
+              end
+            end
+            break
+          end
+        end
         break
       end
     end
   end
+
+  -- Now update lines individually using nvim_buf_set_text to preserve highlights
+  for line_idx, _ in pairs(old_marker_lines) do
+    local line = lines[line_idx]
+    if line:match("^>") then
+      -- Replace > with space at position 0
+      vim.api.nvim_buf_set_text(bufnr, line_idx - 1, 0, line_idx - 1, 1, {" "})
+    elseif line:match("^     ●") then
+      -- Replace ● with space at position 5 (● is 3 bytes)
+      vim.api.nvim_buf_set_text(bufnr, line_idx - 1, 5, line_idx - 1, 8, {" "})
+    end
+  end
+
+  -- Add new markers
+  if new_marker_line then
+    vim.api.nvim_buf_set_text(bufnr, new_marker_line - 1, 0, new_marker_line - 1, 1, {">"})
+  end
+  if new_fn_marker_line then
+    vim.api.nvim_buf_set_text(bufnr, new_fn_marker_line - 1, 5, new_fn_marker_line - 1, 6, {"●"})
+  end
+
+  vim.api.nvim_buf_set_option(bufnr, 'modifiable', false)
+
+  return target_line_num
+end
+
+-- Update the cursor marker in pass list
+-- IMPORTANT: index is the ORIGINAL index in M.state.passes, NOT display_index!
+function M.update_pass_list_cursor(index)
+  -- Use lightweight marker update instead of full rebuild
+  local target_line_num = update_markers_only(index)
 
   -- Move cursor to the marked line
   if target_line_num then
