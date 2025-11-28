@@ -3,6 +3,7 @@ local M = {}
 local stats = require('godbolt.stats')
 local ir_utils = require('godbolt.ir_utils')
 local pipeline = require('godbolt.pipeline')
+local line_map = require('godbolt.line_map')
 
 -- State for pipeline viewer
 M.state = {
@@ -625,6 +626,21 @@ function M.show_diff(index)
   if M.state.config.show_stats then
     M.show_stats(index)
   end
+
+  -- Set up line mapping between source and after IR (if source buffer exists)
+  if M.state.source_bufnr and vim.api.nvim_buf_is_valid(M.state.source_bufnr) then
+    -- Clean up previous line mapping
+    line_map.cleanup()
+
+    -- Set up line mapping with auto-scroll enabled
+    local line_map_config = M.state.config.line_mapping or {}
+    line_map_config.auto_scroll = true  -- Force auto-scroll in pipeline viewer
+
+    -- Store full IR for line mapping
+    vim.b[M.state.after_bufnr].godbolt_full_output = after_ir
+
+    line_map.setup(M.state.source_bufnr, M.state.after_bufnr, "llvm", line_map_config)
+  end
 end
 
 -- Update the cursor marker in pass list
@@ -909,6 +925,9 @@ end
 
 -- Cleanup viewer state
 function M.cleanup()
+  -- Clean up line mapping
+  line_map.cleanup()
+
   -- Disable diff mode
   if M.state.before_winid and vim.api.nvim_win_is_valid(M.state.before_winid) then
     vim.api.nvim_win_call(M.state.before_winid, function()

@@ -17,7 +17,7 @@ M.config = {
   -- Line mapping configuration
   line_mapping = {
     enabled = true,
-    auto_scroll = false,
+    auto_scroll = true,             -- Auto-scroll to mapped lines when cursor moves
     throttle_ms = 150,
     silent_on_failure = false,      -- Show error messages if debug info missing
     show_compilation_cmd = true,    -- Show compilation command when debug info fails
