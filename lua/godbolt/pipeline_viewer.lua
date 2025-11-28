@@ -688,14 +688,18 @@ function M.compute_pass_changes()
   local total_passes = #M.state.passes
   local chunk_size = 50  -- Process in chunks to show progress
   local start_time = vim.loop.hrtime()
+  local last_print_time = start_time
 
   for chunk_start = 1, total_passes, chunk_size do
     local chunk_end = math.min(chunk_start + chunk_size - 1, total_passes)
 
-    -- Show progress every chunk with elapsed time
-    if chunk_start > 1 then
-      local elapsed = (vim.loop.hrtime() - start_time) / 1e9  -- Convert to seconds
-      print(string.format("[Pipeline] Computing... (%d/%d passes, %.1fs elapsed)", chunk_end, total_passes, elapsed))
+    -- Show progress every 2 seconds (not every chunk)
+    local current_time = vim.loop.hrtime()
+    local elapsed_since_print = (current_time - last_print_time) / 1e9
+    if chunk_start > 1 and elapsed_since_print >= 2.0 then
+      local total_elapsed = (current_time - start_time) / 1e9
+      print(string.format("[Pipeline] Computing... (%d/%d passes, %ds elapsed)", chunk_end, total_passes, math.floor(total_elapsed)))
+      last_print_time = current_time
     end
 
     for index = chunk_start, chunk_end do
