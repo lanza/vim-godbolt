@@ -95,30 +95,38 @@ end
 --   - compiler: compiler path (optional, uses clang/clang++ by default)
 --   - flags: additional compiler flags (optional)
 --   - working_dir: working directory to run from (optional)
--- @return: array of {name, ir} tables, one per pass
-function M.run_pipeline(input_file, passes_str, opts)
+-- @param callback: function(passes) called when complete (nil if async not supported)
+-- @return: array of {name, ir} tables if callback is nil (sync), otherwise nil (async)
+function M.run_pipeline(input_file, passes_str, opts, callback)
   opts = opts or {}
 
   if input_file:match("%.ll$") then
-    return run_opt_pipeline(input_file, passes_str, opts)
+    if callback then
+      return run_opt_pipeline_async(input_file, passes_str, opts, callback)
+    else
+      return run_opt_pipeline(input_file, passes_str, opts)
+    end
   elseif input_file:match("%.c$") or input_file:match("%.cpp$") then
     local godbolt = require('godbolt')
     local lang_args = opts.flags or (input_file:match("%.cpp$") and
       godbolt.config.cpp_args or godbolt.config.c_args)
-    return run_clang_pipeline(input_file, passes_str, lang_args, opts)
+    if callback then
+      return run_clang_pipeline_async(input_file, passes_str, lang_args, opts, callback)
+    else
+      return run_clang_pipeline(input_file, passes_str, lang_args, opts)
+    end
   else
     print("[Pipeline] Unsupported file type: " .. input_file)
     print("[Pipeline] Only .ll, .c, and .cpp files are supported")
+    if callback then
+      vim.schedule(function() callback(nil) end)
+    end
     return nil
   end
 end
 
--- Run opt pipeline (LLVM IR files)
--- @param input_file: path to .ll file
--- @param passes_str: comma-separated pass names or "default<O2>"
--- @param opts: optional table (unused for opt, kept for consistency)
--- @return: array of {name, ir} tables, one per pass
-run_opt_pipeline = function(input_file, passes_str, opts)
+-- Run opt pipeline (LLVM IR files) - ASYNC VERSION
+run_opt_pipeline_async = function(input_file, passes_str, opts, callback)
   local cmd = string.format(
     'opt --strip-debug -passes="%s" --print-after-all -S "%s" 2>&1',
     passes_str,
@@ -129,24 +137,92 @@ run_opt_pipeline = function(input_file, passes_str, opts)
   print("[Pipeline] Running command:")
   print("  " .. cmd)
 
+  local start_time = vim.loop.hrtime()
+  local timer = vim.loop.new_timer()
+  local timer_cancelled = false
+
+  print("[Pipeline] ⏳ Compiling... (UI stays responsive)")
+
+  -- Show progress every 2 seconds
+  timer:start(2000, 2000, vim.schedule_wrap(function()
+    if not timer_cancelled then
+      local elapsed = (vim.loop.hrtime() - start_time) / 1e9  -- Convert to seconds
+      print(string.format("[Pipeline] ⏳ Still compiling... (%ds elapsed)", math.floor(elapsed)))
+    end
+  end))
+
   if M.debug then
     print("[Pipeline Debug] Command details logged above")
   end
 
-  -- Execute command and capture output
+  -- Execute command ASYNCHRONOUSLY
+  local cmd_parts = vim.split(cmd, " ", {trimempty = true})
+  vim.system(cmd_parts, {
+    text = true,
+  }, function(obj)
+    vim.schedule(function()
+      -- Stop progress timer
+      timer_cancelled = true
+      timer:stop()
+      timer:close()
+
+      local elapsed = (vim.loop.hrtime() - start_time) / 1e9
+
+      if obj.code ~= 0 then
+        print(string.format("[Pipeline] ❌ Compilation failed after %.1fs (exit code %d)", elapsed, obj.code))
+        print("[Pipeline] stderr: " .. (obj.stderr or ""))
+        callback(nil)
+        return
+      end
+
+      local output = obj.stdout or ""
+
+      if M.debug then
+        print("[Pipeline Debug] Output length: " .. #output .. " bytes")
+        print("[Pipeline Debug] First 500 chars of output:")
+        print(string.sub(output, 1, 500))
+      end
+
+      -- Check for errors
+      if output:match("^opt:") or output:match("\nopt:") then
+        print(string.format("[Pipeline] ❌ Compilation failed after %.1fs", elapsed))
+        print(cmd)
+        local lines = vim.split(output, "\n")
+        for i = 1, math.min(5, #lines) do
+          print(lines[i])
+        end
+        callback(nil)
+        return
+      end
+
+      -- Parse the pipeline output
+      print(string.format("[Pipeline] ✓ Compilation completed in %.1fs, parsing passes...", elapsed))
+      local passes, _ = M.parse_pipeline_output(output)
+      callback(passes)
+    end)
+  end)
+end
+
+-- Run opt pipeline (LLVM IR files) - SYNC VERSION (kept for backwards compat)
+run_opt_pipeline = function(input_file, passes_str, opts)
+  local cmd = string.format(
+    'opt --strip-debug -passes="%s" --print-after-all -S "%s" 2>&1',
+    passes_str,
+    input_file
+  )
+
+  print("[Pipeline] Running command:")
+  print("  " .. cmd)
+
   local output = vim.fn.system(cmd)
 
   if M.debug then
     print("[Pipeline Debug] Output length: " .. #output .. " bytes")
-    print("[Pipeline Debug] First 500 chars of output:")
-    print(string.sub(output, 1, 500))
   end
 
-  -- Check for errors (look for "opt:" error prefix in output)
   if output:match("^opt:") or output:match("\nopt:") then
     print("[Pipeline] Error running opt:")
     print(cmd)
-    -- Print first few lines of error
     local lines = vim.split(output, "\n")
     for i = 1, math.min(5, #lines) do
       print(lines[i])
@@ -154,19 +230,152 @@ run_opt_pipeline = function(input_file, passes_str, opts)
     return nil
   end
 
-  -- Parse the pipeline output to get passes (ignore initial_ir for .ll files)
   local passes, _ = M.parse_pipeline_output(output)
-
-  -- Don't prepend Input - let the viewer handle the initial state per-function
   return passes
 end
 
--- Run clang pipeline (C/C++ files)
--- @param input_file: path to .c or .cpp file
--- @param passes_str: optimization level (e.g., "O2", "-O2", "2")
--- @param lang_args: language-specific compiler arguments
--- @param opts: optional table with compiler, flags, working_dir
--- @return: array of {name, ir} tables, one per pass
+-- Run clang pipeline (C/C++ files) - ASYNC VERSION
+run_clang_pipeline_async = function(input_file, passes_str, lang_args, opts, callback)
+  opts = opts or {}
+
+  -- Validate: only O-levels for C/C++
+  local opt_level = normalize_o_level(passes_str)
+  if not opt_level then
+    print("[Pipeline] C/C++ files only support O-levels (O0, O1, O2, O3)")
+    print("[Pipeline] For custom passes, compile to .ll first")
+    vim.schedule(function() callback(nil) end)
+    return
+  end
+
+  -- Check for LTO flags
+  local args_str = type(lang_args) == "table" and table.concat(lang_args, " ") or (lang_args or "")
+  if has_lto_flags(args_str) then
+    print("[Pipeline] Error: LTO flags detected in compiler arguments")
+    print("[Pipeline] LTO defers optimizations to link-time, incompatible with -print-after-all")
+    print("[Pipeline] Remove -flto or similar flags to view pipeline")
+    vim.schedule(function() callback(nil) end)
+    return
+  end
+
+  -- Determine compiler
+  local compiler = opts.compiler or (input_file:match("%.cpp$") and "clang++" or "clang")
+
+  -- Build command
+  local cmd_parts = {
+    compiler,
+    "-mllvm", "-print-after-all",
+    "-mllvm", "-print-before-pass-number=1",
+    opt_level,
+    "-fno-discard-value-names",
+    "-fstandalone-debug",
+  }
+
+  -- Add language args
+  if lang_args then
+    if type(lang_args) == "string" then
+      for arg in lang_args:gmatch("%S+") do
+        table.insert(cmd_parts, arg)
+      end
+    else
+      for _, arg in ipairs(lang_args) do
+        table.insert(cmd_parts, arg)
+      end
+    end
+  end
+
+  table.insert(cmd_parts, "-S")
+  table.insert(cmd_parts, "-emit-llvm")
+  table.insert(cmd_parts, "-o")
+  table.insert(cmd_parts, "/dev/null")
+  table.insert(cmd_parts, input_file)
+
+  -- Change to working directory if specified
+  local cwd = opts.working_dir
+
+  -- Print exact command
+  local cmd_display = table.concat(cmd_parts, " ") .. " 2>&1"
+  if cwd then
+    cmd_display = string.format("cd %s && %s", cwd, cmd_display)
+  end
+  print("[Pipeline] Running command:")
+  print("  " .. cmd_display)
+
+  local start_time = vim.loop.hrtime()
+  local timer = vim.loop.new_timer()
+  local timer_cancelled = false
+
+  print("[Pipeline] ⏳ Compiling... (UI stays responsive)")
+
+  -- Show progress every 2 seconds
+  timer:start(2000, 2000, vim.schedule_wrap(function()
+    if not timer_cancelled then
+      local elapsed = (vim.loop.hrtime() - start_time) / 1e9  -- Convert to seconds
+      print(string.format("[Pipeline] ⏳ Still compiling... (%ds elapsed)", math.floor(elapsed)))
+    end
+  end))
+
+  -- Execute ASYNCHRONOUSLY
+  vim.system(cmd_parts, {
+    text = true,
+    cwd = cwd,
+    stderr = true,
+    stdout = true,
+  }, function(obj)
+    vim.schedule(function()
+      -- Stop progress timer
+      timer_cancelled = true
+      timer:stop()
+      timer:close()
+
+      local elapsed = (vim.loop.hrtime() - start_time) / 1e9
+
+      if obj.code ~= 0 then
+        print(string.format("[Pipeline] ❌ Compilation failed after %.1fs (exit code %d)", elapsed, obj.code))
+        local output = (obj.stdout or "") .. (obj.stderr or "")
+        local lines = vim.split(output, "\n")
+        for i = 1, math.min(10, #lines) do
+          print(lines[i])
+        end
+        callback(nil)
+        return
+      end
+
+      -- Combine stdout and stderr
+      local output = (obj.stdout or "") .. (obj.stderr or "")
+
+      if M.debug then
+        print("[Pipeline Debug] Output length: " .. #output .. " bytes")
+      end
+
+      -- Check for errors
+      if output:match("error:") or output:match("fatal error:") then
+        print(string.format("[Pipeline] ❌ Compilation failed after %.1fs", elapsed))
+        local lines = vim.split(output, "\n")
+        for i = 1, math.min(10, #lines) do
+          print(lines[i])
+        end
+        callback(nil)
+        return
+      end
+
+      -- Parse pipeline output
+      print(string.format("[Pipeline] ✓ Compilation completed in %.1fs, parsing passes...", elapsed))
+      local passes, initial_ir = M.parse_pipeline_output(output, "clang")
+
+      -- Cache initial IR
+      if initial_ir then
+        M._cached_initial_ir = {
+          file = input_file,
+          ir = initial_ir,
+        }
+      end
+
+      callback(passes)
+    end)
+  end)
+end
+
+-- Run clang pipeline (C/C++ files) - SYNC VERSION (kept for backwards compat)
 run_clang_pipeline = function(input_file, passes_str, lang_args, opts)
   opts = opts or {}
 
