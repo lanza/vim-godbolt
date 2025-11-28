@@ -1,26 +1,58 @@
 # TODO & Feature Ideas
 
-## Completed Features ✓
+## Completed Features
 
-- [x] **compile_commands.json Integration** - Project integration
-  - Auto-detect project build flags
-  - Respect build system configuration
-  - CMake/Ninja/Bear integration
-  - Priority-based project root detection
-  - Working directory and compiler extraction
+### Pipeline Viewer Enhancements
+- [x] **Pass Grouping with Fold/Unfold** - Organize function passes by name
+  - Group function/CGSCC passes together (e.g., "SROAPass (3 functions)")
+  - Collapsible groups with `>` and `v` fold icons
+  - `o` key to toggle folds, Enter to fold/select
+  - Visual hierarchy with indented function entries
+- [x] **Smart Navigation** - Tab/Shift-Tab only jump to changed passes
+  - Efficient navigation through meaningful transformations
+  - j/k for all passes, Tab/Shift-Tab for changed passes only
+  - Automatic skip of unchanged passes in smart mode
+- [x] **Enhanced Highlighting** - Better visual distinction
+  - Custom highlight groups for fold icons, group headers, function entries
+  - Theme-aware colors (dark/light background support)
+  - Different colors for Module [M], Function [F], and CGSCC [C] scopes
+  - Distinct highlighting for selected markers
+- [x] **Configurable Stats Logging** - Control message output
+  - `show_stats = false` by default (prevents message line wrapping)
+  - Can be enabled via config: `pipeline = { show_stats = true }`
 
-- [x] **LTO Comparison View** - Enhanced statistics and visualization
-  - Before/after LTO diff viewer
-  - Cross-module inlining detection
-  - Dead code elimination tracking
-  - File-specific coloring for multi-file analysis
+### LTO (Link-Time Optimization)
+- [x] **LTO Comparison View** - Compare source files before and after LTO
+  - Side-by-side diff view
+  - Enhanced statistics with deltas
+  - Support for multiple source files
 
-- [x] **Output Preference Control** - LLVM IR vs assembly selection
-  - Configurable output format (llvm/asm/auto)
-  - Smart defaults for compile_commands.json projects
-  - Auto-inject -emit-llvm when appropriate
+### Project Integration
+- [x] **compile_commands.json Support** - Seamless build system integration
+  - Auto-detect compilation database
+  - Extract compiler flags per file
+  - Support for both :Godbolt and :GodboltPipeline commands
+  - Priority-based search (current dir → project root → parent dirs)
+
+### Output Control
+- [x] **Output Preference Control** - Choose between LLVM IR and assembly
+  - `output_preference` config option: "auto", "llvm", or "asm"
+  - Auto-upgrade to LLVM IR when using compile_commands.json
+  - Introspection flags enforced on all clang invocations:
+    - `-fno-discard-value-names` - Keep SSA value names
+    - `-fstandalone-debug` - Complete debug info
 
 ## Pending Features
+
+### Pipeline Viewer - Future Enhancements
+- [ ] **Capture-Time Filtering** - Filter functions during compilation
+  - Use `--filter-print-funcs=<regex>` LLVM flag
+  - Config option: `pipeline = { filter_funcs = "main|foo|bar" }`
+  - Whitelist/blacklist mode
+- [ ] **Runtime Filtering UI** - Interactive filtering while viewing
+  - Press 'f' to select specific functions
+  - Press 'c' to toggle "changed only" mode
+  - Dynamic pass list updates
 
 - [ ] DILexicalBlockScope exploration for scope-aware features
 - [ ] Complete assembly line mapping (parse `.loc` directives)

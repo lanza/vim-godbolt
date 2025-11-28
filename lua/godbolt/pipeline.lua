@@ -200,6 +200,10 @@ run_clang_pipeline = function(input_file, passes_str, lang_args, opts)
     opt_level,
   }
 
+  -- Add introspection flags for better IR readability and debug info
+  table.insert(cmd_parts, "-fno-discard-value-names")  -- Keep SSA value names (%foo vs %1)
+  table.insert(cmd_parts, "-fstandalone-debug")        -- Complete debug info (not minimal)
+
   -- Add language args
   if lang_args then
     if type(lang_args) == "string" then
