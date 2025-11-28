@@ -687,13 +687,15 @@ function M.compute_pass_changes()
   local pipeline = require('godbolt.pipeline')
   local total_passes = #M.state.passes
   local chunk_size = 50  -- Process in chunks to show progress
+  local start_time = vim.loop.hrtime()
 
   for chunk_start = 1, total_passes, chunk_size do
     local chunk_end = math.min(chunk_start + chunk_size - 1, total_passes)
 
-    -- Show progress every chunk
+    -- Show progress every chunk with elapsed time
     if chunk_start > 1 then
-      print(string.format("[Pipeline] Computing... (%d/%d passes)", chunk_end, total_passes))
+      local elapsed = (vim.loop.hrtime() - start_time) / 1e9  -- Convert to seconds
+      print(string.format("[Pipeline] Computing... (%d/%d passes, %.1fs elapsed)", chunk_end, total_passes, elapsed))
     end
 
     for index = chunk_start, chunk_end do
@@ -985,9 +987,10 @@ function M.show_diff(index)
     -- Clean up previous line mapping
     line_map.cleanup()
 
-    -- Set up line mapping with auto-scroll enabled
+    -- Set up line mapping with auto-scroll enabled and quiet mode
     local line_map_config = M.state.config.line_mapping or {}
     line_map_config.auto_scroll = true  -- Force auto-scroll in pipeline viewer
+    line_map_config.quiet = true  -- Suppress "no mappings" warnings (expected for many passes)
 
     -- Store full IR for line mapping
     vim.b[M.state.after_bufnr].godbolt_full_output = after_ir

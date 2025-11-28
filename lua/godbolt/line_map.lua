@@ -311,9 +311,12 @@ function M.setup(source_bufnr, output_bufnr, output_type, config)
 
   -- Check if we found any mappings
   if not state.src_to_out or vim.tbl_count(state.src_to_out) == 0 then
-    print("[Line Mapping] No line mappings found in output.")
-    print("[Line Mapping] This is expected - the plugin handles debug info generation automatically.")
-    print("[Line Mapping] If this persists, check :messages for diagnostic information.")
+    -- Only print warnings if not in quiet mode (e.g., when called from pipeline viewer)
+    if not config.quiet then
+      print("[Line Mapping] No line mappings found in output.")
+      print("[Line Mapping] This is expected - the plugin handles debug info generation automatically.")
+      print("[Line Mapping] If this persists, check :messages for diagnostic information.")
+    end
     return
   end
 
