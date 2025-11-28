@@ -534,79 +534,77 @@ function M.godbolt_pipeline(args_str)
     end
   end
 
-  -- Run the pipeline (exact command will be printed by run_pipeline)
+  -- Run the pipeline ASYNCHRONOUSLY
   local pipeline_opts = {
     compiler = cc_compiler,
     flags = cc_flags,
     working_dir = compile_directory,
   }
-  local passes = pipeline.run_pipeline(file, passes_to_run, pipeline_opts)
 
-  if not passes then
-    print("[Pipeline] Failed to run pipeline (see error above)")
-    return
-  end
+  pipeline.run_pipeline(file, passes_to_run, pipeline_opts, function(passes)
+    if not passes then
+      print("[Pipeline] Failed to run pipeline (see error above)")
+      return
+    end
 
-  if #passes == 0 then
-    -- Check if the file has optnone attribute (prevents optimization)
-    local file_content = vim.fn.readfile(file)
-    local has_optnone = false
-    for _, line in ipairs(file_content) do
-      if line:match("optnone") then
-        has_optnone = true
-        break
+    if #passes == 0 then
+      -- Check if the file has optnone attribute
+      local file_content = vim.fn.readfile(file)
+      local has_optnone = false
+      for _, line in ipairs(file_content) do
+        if line:match("optnone") then
+          has_optnone = true
+          break
+        end
       end
+
+      print("[Pipeline] No passes captured.")
+
+      if has_optnone then
+        print("")
+        print("  *** FOUND PROBLEM: Your IR has 'optnone' attribute ***")
+        print("  This prevents all optimization passes from running!")
+        print("")
+        print("  Solutions:")
+        print("    1. Recompile without -O0:")
+        print("       clang -S -emit-llvm yourfile.c -o yourfile.ll")
+        print("")
+        print("    2. Or strip optnone from existing file:")
+        print("       opt -strip-optnone -S " .. file .. " -o " .. file)
+        print("")
+      else
+        print("")
+        print("  Possible reasons:")
+        print("    1. The pass didn't produce any output")
+        print("    2. Your LLVM version doesn't support --print-after-all")
+        print("    3. The pass name is incorrect")
+        print("")
+        print("  To debug, enable debug mode:")
+        print("    :GodboltDebug on")
+        print("  Then run :GodboltPipeline again")
+      end
+      return
     end
 
-    print("[Pipeline] No passes captured.")
+    print(string.format("[Pipeline] Captured %d pass stages", #passes))
 
-    if has_optnone then
-      print("")
-      print("  *** FOUND PROBLEM: Your IR has 'optnone' attribute ***")
-      print("  This prevents all optimization passes from running!")
-      print("")
-      print("  Solutions:")
-      print("    1. Recompile without -O0:")
-      print("       clang -S -emit-llvm yourfile.c -o yourfile.ll")
-      print("")
-      print("    2. Or strip optnone from existing file:")
-      print("       opt -strip-optnone -S " .. file .. " -o " .. file)
-      print("")
+    -- Setup pipeline viewer
+    local ok, pipeline_viewer = pcall(require, 'godbolt.pipeline_viewer')
+    if ok then
+      local viewer_config = vim.tbl_deep_extend("force", M.config.pipeline, {
+        line_mapping = M.config.line_mapping,
+        display = M.config.display
+      })
+
+      pipeline_viewer.setup(source_bufnr, file, passes, viewer_config)
+
+      print(string.format("[Pipeline] ✓ Pipeline viewer ready with %d passes", #passes))
     else
-      print("")
-      print("  Possible reasons:")
-      print("    1. The pass didn't produce any output")
-      print("    2. Your LLVM version doesn't support --print-after-all")
-      print("    3. The pass name is incorrect")
-      print("")
-      print("  To debug, enable debug mode:")
-      print("    :GodboltDebug on")
-      print("  Then run :VGodboltPipeline again")
-      print("")
-      print("  Or test manually:")
-      print("    opt -passes=\"" .. passes_to_run .. "\" --print-after-all -S " .. file)
+      print("[Pipeline] Failed to load pipeline viewer")
     end
-    return
-  end
 
-  print(string.format("[Pipeline] Captured %d pass stages", #passes))
-
-  -- Setup pipeline viewer (it will create its own 3-pane layout)
-  local ok, pipeline_viewer = pcall(require, 'godbolt.pipeline_viewer')
-  if ok then
-    -- Merge pipeline config with line_mapping and display configs
-    local viewer_config = vim.tbl_deep_extend("force", M.config.pipeline, {
-      line_mapping = M.config.line_mapping,
-      display = M.config.display
-    })
-
-    pipeline_viewer.setup(source_bufnr, file, passes, viewer_config)
-  else
-    print("[Pipeline] Failed to load pipeline viewer")
-  end
-
-  -- Trigger autocommand event
-  vim.cmd("doautocmd User GodboltPipeline")
+    vim.cmd("doautocmd User GodboltPipeline")
+  end)
 end
 
 -- LTO (Link-Time Optimization) compilation for multiple files
