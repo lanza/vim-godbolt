@@ -395,13 +395,46 @@ end
 -- Run LLVM optimization pipeline and show passes
 function M.godbolt_pipeline(args_str)
   args_str = args_str or ""
-  local file = vim.fn.expand("%")
+  local file = vim.fn.expand("%:p")  -- Get absolute path
   local source_bufnr = vim.fn.bufnr("%")
+  local compile_directory = nil
+  local cc_compiler = nil
+  local cc_flags = nil
 
   -- Support .ll, .c, and .cpp files
   if not (file:match("%.ll$") or file:match("%.c$") or file:match("%.cpp$")) then
     print("[Pipeline] Only works with LLVM IR (.ll) or C/C++ (.c, .cpp) files")
     return
+  end
+
+  -- Try to get compiler flags from compile_commands.json for C/C++ files
+  if (file:match("%.c$") or file:match("%.cpp$")) and args_str == "" then
+    local project = require('godbolt.project')
+    local compile_commands = require('godbolt.compile_commands')
+
+    local cc_path = project.find_compile_commands()
+    if cc_path then
+      local ok, cc_data = compile_commands.parse_compile_commands(cc_path)
+      if ok then
+        local entry = compile_commands.find_file_entry(cc_data, file)
+        if entry then
+          compile_directory = entry.directory
+
+          local parsed = compile_commands.parse_entry(entry)
+          if parsed then
+            cc_compiler = parsed.compiler
+
+            local relevant_flags = compile_commands.filter_relevant_flags(parsed.args)
+            if #relevant_flags > 0 then
+              cc_flags = table.concat(relevant_flags, " ")
+              print(string.format("[Pipeline] Using compiler from compile_commands.json: %s", cc_compiler))
+              print(string.format("[Pipeline] Using flags from compile_commands.json: %s", cc_flags))
+              print(string.format("[Pipeline] Working directory: %s", compile_directory))
+            end
+          end
+        end
+      end
+    end
   end
 
   -- For C/C++ files, check for LTO flags
@@ -413,8 +446,8 @@ function M.godbolt_pipeline(args_str)
       buffer_args = first_line:gsub("^//[%s]*godbolt:", "")
     end
 
-    -- Check for LTO flags in both command line and buffer args
-    local all_args = args_str .. " " .. buffer_args
+    -- Check for LTO flags in compile_commands, command line, and buffer args
+    local all_args = (cc_flags or "") .. " " .. args_str .. " " .. buffer_args
     if all_args:match("-flto") or all_args:match("-flink%-time%-optimization") then
       print("[Pipeline] ERROR: LTO flags detected (-flto, -flto=thin)")
       print("[Pipeline] LTO defers optimization to link-time, so compilation passes are minimal")
@@ -501,7 +534,12 @@ function M.godbolt_pipeline(args_str)
   end
 
   -- Run the pipeline (exact command will be printed by run_pipeline)
-  local passes = pipeline.run_pipeline(file, passes_to_run)
+  local pipeline_opts = {
+    compiler = cc_compiler,
+    flags = cc_flags,
+    working_dir = compile_directory,
+  }
+  local passes = pipeline.run_pipeline(file, passes_to_run, pipeline_opts)
 
   if not passes then
     print("[Pipeline] Failed to run pipeline (see error above)")

@@ -91,15 +91,21 @@ end
 -- Supports both .ll files (opt) and C/C++ files (clang)
 -- @param input_file: path to .ll, .c, or .cpp file
 -- @param passes_str: comma-separated pass names, "default<O2>", or "O2"
+-- @param opts: optional table with:
+--   - compiler: compiler path (optional, uses clang/clang++ by default)
+--   - flags: additional compiler flags (optional)
+--   - working_dir: working directory to run from (optional)
 -- @return: array of {name, ir} tables, one per pass
-function M.run_pipeline(input_file, passes_str)
+function M.run_pipeline(input_file, passes_str, opts)
+  opts = opts or {}
+
   if input_file:match("%.ll$") then
-    return run_opt_pipeline(input_file, passes_str)
+    return run_opt_pipeline(input_file, passes_str, opts)
   elseif input_file:match("%.c$") or input_file:match("%.cpp$") then
     local godbolt = require('godbolt')
-    local lang_args = input_file:match("%.cpp$") and
-      godbolt.config.cpp_args or godbolt.config.c_args
-    return run_clang_pipeline(input_file, passes_str, lang_args)
+    local lang_args = opts.flags or (input_file:match("%.cpp$") and
+      godbolt.config.cpp_args or godbolt.config.c_args)
+    return run_clang_pipeline(input_file, passes_str, lang_args, opts)
   else
     print("[Pipeline] Unsupported file type: " .. input_file)
     print("[Pipeline] Only .ll, .c, and .cpp files are supported")
@@ -110,8 +116,9 @@ end
 -- Run opt pipeline (LLVM IR files)
 -- @param input_file: path to .ll file
 -- @param passes_str: comma-separated pass names or "default<O2>"
+-- @param opts: optional table (unused for opt, kept for consistency)
 -- @return: array of {name, ir} tables, one per pass
-run_opt_pipeline = function(input_file, passes_str)
+run_opt_pipeline = function(input_file, passes_str, opts)
   local cmd = string.format(
     'opt --strip-debug -passes="%s" --print-after-all -S "%s" 2>&1',
     passes_str,
@@ -158,8 +165,11 @@ end
 -- @param input_file: path to .c or .cpp file
 -- @param passes_str: optimization level (e.g., "O2", "-O2", "2")
 -- @param lang_args: language-specific compiler arguments
+-- @param opts: optional table with compiler, flags, working_dir
 -- @return: array of {name, ir} tables, one per pass
-run_clang_pipeline = function(input_file, passes_str, lang_args)
+run_clang_pipeline = function(input_file, passes_str, lang_args, opts)
+  opts = opts or {}
+
   -- Validate: only O-levels for C/C++
   local opt_level = normalize_o_level(passes_str)
   if not opt_level then
@@ -179,8 +189,8 @@ run_clang_pipeline = function(input_file, passes_str, lang_args)
     return nil
   end
 
-  -- Determine compiler (clang or clang++)
-  local compiler = input_file:match("%.cpp$") and "clang++" or "clang"
+  -- Determine compiler (use from opts or default to clang/clang++)
+  local compiler = opts.compiler or (input_file:match("%.cpp$") and "clang++" or "clang")
 
   -- Build command: clang -mllvm -print-after-all -mllvm -print-before-pass-number=1 <opt-level> <args> -S -emit-llvm -o /dev/null file.c
   local cmd_parts = {
@@ -214,6 +224,11 @@ run_clang_pipeline = function(input_file, passes_str, lang_args)
 
   -- Redirect stderr to stdout to capture -print-after-all output
   local cmd = table.concat(cmd_parts, " ") .. " 2>&1"
+
+  -- If working_dir is specified, prepend cd command
+  if opts.working_dir then
+    cmd = string.format("cd %s && %s", vim.fn.shellescape(opts.working_dir), cmd)
+  end
 
   -- Always print exact command for debugging
   print("[Pipeline] Running command:")
