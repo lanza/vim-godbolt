@@ -1,3 +1,8 @@
+-- Helper to get timestamp string
+local function get_timestamp()
+  return os.date("%H:%M:%S")
+end
+
 local M = {}
 
 local ir_utils = require('godbolt.ir_utils')
@@ -143,8 +148,8 @@ function M.run_pipeline(input_file, passes_str, opts, callback)
       return run_clang_pipeline(input_file, passes_str, lang_args, opts)
     end
   else
-    print("[Pipeline] Unsupported file type: " .. input_file)
-    print("[Pipeline] Only .ll, .c, and .cpp files are supported")
+    print("[" .. get_timestamp() .. "] [Pipeline] Unsupported file type: " .. input_file)
+    print("[" .. get_timestamp() .. "] [Pipeline] Only .ll, .c, and .cpp files are supported")
     if callback then
       vim.schedule(function() callback(nil) end)
     end
@@ -161,20 +166,20 @@ run_opt_pipeline_async = function(input_file, passes_str, opts, callback)
   )
 
   -- Always print exact command for debugging
-  print("[Pipeline] Running command:")
+  print("[" .. get_timestamp() .. "] [Pipeline] Running command:")
   print("  " .. cmd)
 
   local start_time = vim.loop.hrtime()
   local timer = vim.loop.new_timer()
   local timer_cancelled = false
 
-  print("[Pipeline] ⏳ Compiling... (UI stays responsive)")
+  print("[" .. get_timestamp() .. "] [Pipeline] ⏳ Compiling... (UI stays responsive)")
 
   -- Show progress every 2 seconds
   timer:start(1000, 1000, vim.schedule_wrap(function()
     if not timer_cancelled then
       local elapsed = (vim.loop.hrtime() - start_time) / 1e9  -- Convert to seconds
-      print(string.format("[Pipeline] ⏳ Still compiling... (%ds elapsed)", math.floor(elapsed)))
+      print(string.format("[" .. get_timestamp() .. "] [Pipeline] ⏳ Still compiling... (%ds elapsed)", math.floor(elapsed)))
     end
   end))
 
@@ -196,8 +201,8 @@ run_opt_pipeline_async = function(input_file, passes_str, opts, callback)
       local elapsed = (vim.loop.hrtime() - start_time) / 1e9
 
       if obj.code ~= 0 then
-        print(string.format("[Pipeline] ❌ Compilation failed after %.1fs (exit code %d)", elapsed, obj.code))
-        print("[Pipeline] stderr: " .. (obj.stderr or ""))
+        print(string.format("[" .. get_timestamp() .. "] [Pipeline] ❌ Compilation failed after %.1fs (exit code %d)", elapsed, obj.code))
+        print("[" .. get_timestamp() .. "] [Pipeline] stderr: " .. (obj.stderr or ""))
         callback(nil)
         return
       end
@@ -212,7 +217,7 @@ run_opt_pipeline_async = function(input_file, passes_str, opts, callback)
 
       -- Check for errors
       if output:match("^opt:") or output:match("\nopt:") then
-        print(string.format("[Pipeline] ❌ Compilation failed after %.1fs", elapsed))
+        print(string.format("[" .. get_timestamp() .. "] [Pipeline] ❌ Compilation failed after %.1fs", elapsed))
         print(cmd)
         local lines = vim.split(output, "\n")
         for i = 1, math.min(5, #lines) do
@@ -223,11 +228,11 @@ run_opt_pipeline_async = function(input_file, passes_str, opts, callback)
       end
 
       -- Parse the pipeline output
-      print(string.format("[Pipeline] ✓ Compilation completed in %.1fs, parsing passes...", elapsed))
+      print(string.format("[" .. get_timestamp() .. "] [Pipeline] ✓ Compilation completed in %.1fs, parsing passes...", elapsed))
       local parse_start = vim.loop.hrtime()
       local passes, _ = M.parse_pipeline_output(output)
       local parse_elapsed = (vim.loop.hrtime() - parse_start) / 1e9
-      print(string.format("[Pipeline] ✓ Parsing completed in %.1fs (%d passes)", parse_elapsed, #passes))
+      print(string.format("[" .. get_timestamp() .. "] [Pipeline] ✓ Parsing completed in %.1fs (%d passes)", parse_elapsed, #passes))
       callback(passes)
     end)
   end)
@@ -241,7 +246,7 @@ run_opt_pipeline = function(input_file, passes_str, opts)
     input_file
   )
 
-  print("[Pipeline] Running command:")
+  print("[" .. get_timestamp() .. "] [Pipeline] Running command:")
   print("  " .. cmd)
 
   local output = vim.fn.system(cmd)
@@ -251,7 +256,7 @@ run_opt_pipeline = function(input_file, passes_str, opts)
   end
 
   if output:match("^opt:") or output:match("\nopt:") then
-    print("[Pipeline] Error running opt:")
+    print("[" .. get_timestamp() .. "] [Pipeline] Error running opt:")
     print(cmd)
     local lines = vim.split(output, "\n")
     for i = 1, math.min(5, #lines) do
@@ -271,8 +276,8 @@ run_clang_pipeline_async = function(input_file, passes_str, lang_args, opts, cal
   -- Validate: only O-levels for C/C++
   local opt_level = normalize_o_level(passes_str)
   if not opt_level then
-    print("[Pipeline] C/C++ files only support O-levels (O0, O1, O2, O3)")
-    print("[Pipeline] For custom passes, compile to .ll first")
+    print("[" .. get_timestamp() .. "] [Pipeline] C/C++ files only support O-levels (O0, O1, O2, O3)")
+    print("[" .. get_timestamp() .. "] [Pipeline] For custom passes, compile to .ll first")
     vim.schedule(function() callback(nil) end)
     return
   end
@@ -280,9 +285,9 @@ run_clang_pipeline_async = function(input_file, passes_str, lang_args, opts, cal
   -- Check for LTO flags
   local args_str = type(lang_args) == "table" and table.concat(lang_args, " ") or (lang_args or "")
   if has_lto_flags(args_str) then
-    print("[Pipeline] Error: LTO flags detected in compiler arguments")
-    print("[Pipeline] LTO defers optimizations to link-time, incompatible with -print-after-all")
-    print("[Pipeline] Remove -flto or similar flags to view pipeline")
+    print("[" .. get_timestamp() .. "] [Pipeline] Error: LTO flags detected in compiler arguments")
+    print("[" .. get_timestamp() .. "] [Pipeline] LTO defers optimizations to link-time, incompatible with -print-after-all")
+    print("[" .. get_timestamp() .. "] [Pipeline] Remove -flto or similar flags to view pipeline")
     vim.schedule(function() callback(nil) end)
     return
   end
@@ -327,20 +332,20 @@ run_clang_pipeline_async = function(input_file, passes_str, lang_args, opts, cal
   if cwd then
     cmd_display = string.format("cd %s && %s", cwd, cmd_display)
   end
-  print("[Pipeline] Running command:")
+  print("[" .. get_timestamp() .. "] [Pipeline] Running command:")
   print("  " .. cmd_display)
 
   local start_time = vim.loop.hrtime()
   local timer = vim.loop.new_timer()
   local timer_cancelled = false
 
-  print("[Pipeline] ⏳ Compiling... (UI stays responsive)")
+  print("[" .. get_timestamp() .. "] [Pipeline] ⏳ Compiling... (UI stays responsive)")
 
   -- Show progress every 2 seconds
   timer:start(1000, 1000, vim.schedule_wrap(function()
     if not timer_cancelled then
       local elapsed = (vim.loop.hrtime() - start_time) / 1e9  -- Convert to seconds
-      print(string.format("[Pipeline] ⏳ Still compiling... (%ds elapsed)", math.floor(elapsed)))
+      print(string.format("[" .. get_timestamp() .. "] [Pipeline] ⏳ Still compiling... (%ds elapsed)", math.floor(elapsed)))
     end
   end))
 
@@ -360,7 +365,7 @@ run_clang_pipeline_async = function(input_file, passes_str, lang_args, opts, cal
       local elapsed = (vim.loop.hrtime() - start_time) / 1e9
 
       if obj.code ~= 0 then
-        print(string.format("[Pipeline] ❌ Compilation failed after %.1fs (exit code %d)", elapsed, obj.code))
+        print(string.format("[" .. get_timestamp() .. "] [Pipeline] ❌ Compilation failed after %.1fs (exit code %d)", elapsed, obj.code))
         local output = (obj.stdout or "") .. (obj.stderr or "")
         local lines = vim.split(output, "\n")
         for i = 1, math.min(10, #lines) do
@@ -379,7 +384,7 @@ run_clang_pipeline_async = function(input_file, passes_str, lang_args, opts, cal
 
       -- Check for errors
       if output:match("error:") or output:match("fatal error:") then
-        print(string.format("[Pipeline] ❌ Compilation failed after %.1fs", elapsed))
+        print(string.format("[" .. get_timestamp() .. "] [Pipeline] ❌ Compilation failed after %.1fs", elapsed))
         local lines = vim.split(output, "\n")
         for i = 1, math.min(10, #lines) do
           print(lines[i])
@@ -389,11 +394,11 @@ run_clang_pipeline_async = function(input_file, passes_str, lang_args, opts, cal
       end
 
       -- Parse pipeline output
-      print(string.format("[Pipeline] ✓ Compilation completed in %.1fs, parsing passes...", elapsed))
+      print(string.format("[" .. get_timestamp() .. "] [Pipeline] ✓ Compilation completed in %.1fs, parsing passes...", elapsed))
       local parse_start = vim.loop.hrtime()
       local passes, initial_ir = M.parse_pipeline_output(output, "clang")
       local parse_elapsed = (vim.loop.hrtime() - parse_start) / 1e9
-      print(string.format("[Pipeline] ✓ Parsing completed in %.1fs (%d passes)", parse_elapsed, #passes))
+      print(string.format("[" .. get_timestamp() .. "] [Pipeline] ✓ Parsing completed in %.1fs (%d passes)", parse_elapsed, #passes))
 
       -- Cache initial IR
       if initial_ir then
@@ -415,8 +420,8 @@ run_clang_pipeline = function(input_file, passes_str, lang_args, opts)
   -- Validate: only O-levels for C/C++
   local opt_level = normalize_o_level(passes_str)
   if not opt_level then
-    print("[Pipeline] C/C++ files only support O-levels (O0, O1, O2, O3)")
-    print("[Pipeline] For custom passes, compile to .ll first:")
+    print("[" .. get_timestamp() .. "] [Pipeline] C/C++ files only support O-levels (O0, O1, O2, O3)")
+    print("[" .. get_timestamp() .. "] [Pipeline] For custom passes, compile to .ll first:")
     print("  :Godbolt -emit-llvm -O0 -Xclang -disable-O0-optnone")
     print("  Then in the .ll file: :GodboltPipeline mem2reg,instcombine")
     return nil
@@ -425,9 +430,9 @@ run_clang_pipeline = function(input_file, passes_str, lang_args, opts)
   -- Check for LTO flags
   local args_str = type(lang_args) == "table" and table.concat(lang_args, " ") or (lang_args or "")
   if has_lto_flags(args_str) then
-    print("[Pipeline] Error: LTO flags detected in compiler arguments")
-    print("[Pipeline] LTO defers optimizations to link-time, incompatible with -print-after-all")
-    print("[Pipeline] Remove -flto or similar flags to view pipeline")
+    print("[" .. get_timestamp() .. "] [Pipeline] Error: LTO flags detected in compiler arguments")
+    print("[" .. get_timestamp() .. "] [Pipeline] LTO defers optimizations to link-time, incompatible with -print-after-all")
+    print("[" .. get_timestamp() .. "] [Pipeline] Remove -flto or similar flags to view pipeline")
     return nil
   end
 
@@ -477,7 +482,7 @@ run_clang_pipeline = function(input_file, passes_str, lang_args, opts)
   end
 
   -- Always print exact command for debugging
-  print("[Pipeline] Running command:")
+  print("[" .. get_timestamp() .. "] [Pipeline] Running command:")
   print("  " .. cmd)
 
   if M.debug then
@@ -497,7 +502,7 @@ run_clang_pipeline = function(input_file, passes_str, lang_args, opts)
 
   -- Check for compilation errors (non-zero exit code or explicit error messages)
   if exit_code ~= 0 or (output:match("error:") or output:match("fatal error:")) then
-    print("[Pipeline] Compilation error:")
+    print("[" .. get_timestamp() .. "] [Pipeline] Compilation error:")
     print(cmd)
     local lines = vim.split(output, "\n")
     for i = 1, math.min(10, #lines) do

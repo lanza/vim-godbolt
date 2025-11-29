@@ -1,5 +1,10 @@
 local M = {}
 
+-- Helper to get timestamp string
+local function get_timestamp()
+  return os.date("%H:%M:%S")
+end
+
 -- Default configuration
 M.config = {
   clang = "clang",
@@ -404,7 +409,7 @@ function M.godbolt_pipeline(args_str)
 
   -- Support .ll, .c, and .cpp files
   if not (file:match("%.ll$") or file:match("%.c$") or file:match("%.cpp$")) then
-    print("[Pipeline] Only works with LLVM IR (.ll) or C/C++ (.c, .cpp) files")
+    print("[" .. get_timestamp() .. "] [Pipeline] Only works with LLVM IR (.ll) or C/C++ (.c, .cpp) files")
     return
   end
 
@@ -428,9 +433,9 @@ function M.godbolt_pipeline(args_str)
             local relevant_flags = compile_commands.filter_relevant_flags(parsed.args)
             if #relevant_flags > 0 then
               cc_flags = table.concat(relevant_flags, " ")
-              print(string.format("[Pipeline] Using compiler from compile_commands.json: %s", cc_compiler))
-              print(string.format("[Pipeline] Using flags from compile_commands.json: %s", cc_flags))
-              print(string.format("[Pipeline] Working directory: %s", compile_directory))
+              print(string.format("[" .. get_timestamp() .. "] [Pipeline] Using compiler from compile_commands.json: %s", cc_compiler))
+              print(string.format("[" .. get_timestamp() .. "] [Pipeline] Using flags from compile_commands.json: %s", cc_flags))
+              print(string.format("[" .. get_timestamp() .. "] [Pipeline] Working directory: %s", compile_directory))
             end
           end
         end
@@ -450,10 +455,10 @@ function M.godbolt_pipeline(args_str)
     -- Check for LTO flags in compile_commands, command line, and buffer args
     local all_args = (cc_flags or "") .. " " .. args_str .. " " .. buffer_args
     if all_args:match("-flto") or all_args:match("-flink%-time%-optimization") then
-      print("[Pipeline] ERROR: LTO flags detected (-flto, -flto=thin)")
-      print("[Pipeline] LTO defers optimization to link-time, so compilation passes are minimal")
-      print("[Pipeline] Remove LTO flags to see optimization passes")
-      print("[Pipeline] Use optimization levels instead: :GodboltPipeline O2")
+      print("[" .. get_timestamp() .. "] [Pipeline] ERROR: LTO flags detected (-flto, -flto=thin)")
+      print("[" .. get_timestamp() .. "] [Pipeline] LTO defers optimization to link-time, so compilation passes are minimal")
+      print("[" .. get_timestamp() .. "] [Pipeline] Remove LTO flags to see optimization passes")
+      print("[" .. get_timestamp() .. "] [Pipeline] Use optimization levels instead: :GodboltPipeline O2")
       return
     end
   end
@@ -503,8 +508,8 @@ function M.godbolt_pipeline(args_str)
       if file:match("%.ll$") then
         passes_to_run = args_str
       else
-        print("[Pipeline] C/C++ files only support O-levels (O0, O1, O2, O3)")
-        print("[Pipeline] For custom passes, compile to .ll first:")
+        print("[" .. get_timestamp() .. "] [Pipeline] C/C++ files only support O-levels (O0, O1, O2, O3)")
+        print("[" .. get_timestamp() .. "] [Pipeline] For custom passes, compile to .ll first:")
         print("  :Godbolt -emit-llvm -O0 -Xclang -disable-O0-optnone")
         print("  Then in the .ll file: :GodboltPipeline mem2reg,instcombine")
         return
@@ -543,7 +548,7 @@ function M.godbolt_pipeline(args_str)
 
   pipeline.run_pipeline(file, passes_to_run, pipeline_opts, function(passes)
     if not passes then
-      print("[Pipeline] Failed to run pipeline (see error above)")
+      print("[" .. get_timestamp() .. "] [Pipeline] Failed to run pipeline (see error above)")
       return
     end
 
@@ -558,7 +563,7 @@ function M.godbolt_pipeline(args_str)
         end
       end
 
-      print("[Pipeline] No passes captured.")
+      print("[" .. get_timestamp() .. "] [Pipeline] No passes captured.")
 
       if has_optnone then
         print("")
@@ -587,7 +592,7 @@ function M.godbolt_pipeline(args_str)
     end
 
     local callback_time = vim.loop.hrtime()
-    print(string.format("[Pipeline] [CALLBACK] Captured %d passes", #passes))
+    print(string.format("[" .. get_timestamp() .. "] [Pipeline] [CALLBACK] Captured %d passes", #passes))
 
     -- Setup pipeline viewer
     local ok, pipeline_viewer = pcall(require, 'godbolt.pipeline_viewer')
@@ -598,14 +603,14 @@ function M.godbolt_pipeline(args_str)
       })
 
       local setup_start = vim.loop.hrtime()
-      print(string.format("[Pipeline] [CALLBACK +%.3fs] Calling pipeline_viewer.setup", (setup_start - callback_time) / 1e9))
+      print(string.format("[" .. get_timestamp() .. "] [Pipeline] [CALLBACK +%.3fs] Calling pipeline_viewer.setup", (setup_start - callback_time) / 1e9))
 
       pipeline_viewer.setup(source_bufnr, file, passes, viewer_config)
 
       local setup_end = vim.loop.hrtime()
-      print(string.format("[Pipeline] [CALLBACK +%.3fs] setup() returned", (setup_end - callback_time) / 1e9))
+      print(string.format("[" .. get_timestamp() .. "] [Pipeline] [CALLBACK +%.3fs] setup() returned", (setup_end - callback_time) / 1e9))
     else
-      print("[Pipeline] Failed to load pipeline viewer")
+      print("[" .. get_timestamp() .. "] [Pipeline] Failed to load pipeline viewer")
     end
 
     vim.cmd("doautocmd User GodboltPipeline")

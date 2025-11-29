@@ -5,6 +5,11 @@ local ir_utils = require('godbolt.ir_utils')
 local pipeline = require('godbolt.pipeline')
 local line_map = require('godbolt.line_map')
 
+-- Helper to get timestamp string
+local function get_timestamp()
+  return os.date("%H:%M:%S")
+end
+
 -- State for pipeline viewer
 M.state = {
   passes = {},
@@ -30,7 +35,7 @@ M.state = {
 -- @param config: configuration table
 function M.setup(source_bufnr, input_file, passes, config)
   local setup_start = vim.loop.hrtime()
-  print(string.format("[Pipeline] [%.3fs] setup() called with %d passes", 0, #passes))
+  print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] setup() called with %d passes", 0, #passes))
 
   config = config or {}
 
@@ -47,11 +52,11 @@ function M.setup(source_bufnr, input_file, passes, config)
     local pipeline = require('godbolt.pipeline')
     passes = pipeline.filter_changed_passes(passes)
     local t = (vim.loop.hrtime() - setup_start) / 1e9
-    print(string.format("[Pipeline] [%.3fs] Filtered to %d passes that changed IR", t, #passes))
+    print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Filtered to %d passes that changed IR", t, #passes))
   end
 
   local t = (vim.loop.hrtime() - setup_start) / 1e9
-  print(string.format("[Pipeline] [%.3fs] Storing state", t))
+  print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Storing state", t))
 
   -- Store state EARLY (before any heavy computation)
   M.state.passes = passes
@@ -69,13 +74,13 @@ function M.setup(source_bufnr, input_file, passes, config)
   end
 
   t = (vim.loop.hrtime() - setup_start) / 1e9
-  print(string.format("[Pipeline] [%.3fs] Creating layout", t))
+  print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Creating layout", t))
 
   -- Create 3-pane layout FIRST (show UI immediately, before any stats computation!)
   M.create_layout()
 
   t = (vim.loop.hrtime() - setup_start) / 1e9
-  print(string.format("[Pipeline] [%.3fs] Layout created, showing placeholder", t))
+  print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Layout created, showing placeholder", t))
 
   -- Show "Computing..." message in pass list
   vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', true)
@@ -88,24 +93,24 @@ function M.setup(source_bufnr, input_file, passes, config)
   vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', false)
 
   t = (vim.loop.hrtime() - setup_start) / 1e9
-  print(string.format("[Pipeline] [%.3fs] Setting up keymaps", t))
+  print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Setting up keymaps", t))
 
   -- Set up key mappings early
   M.setup_keymaps()
 
   t = (vim.loop.hrtime() - setup_start) / 1e9
-  print(string.format("[Pipeline] [%.3fs] Scheduling async computation", t))
+  print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Scheduling async computation", t))
 
   -- Defer ALL heavy computation to async chunks to avoid UI freeze
   vim.schedule(function()
     local async_start = vim.loop.hrtime()
-    print(string.format("[Pipeline] [%.3fs] Starting compute_stats_async", (async_start - setup_start) / 1e9))
+    print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Starting compute_stats_async", (async_start - setup_start) / 1e9))
 
     -- OPTIMIZATION: Compute stats asynchronously in chunks to avoid UI freeze
     -- Previously this was a synchronous loop causing 3-8 second freeze
     M.compute_stats_async(function()
       local stats_done = vim.loop.hrtime()
-      print(string.format("[Pipeline] [%.3fs] Stats complete, starting compute_pass_changes", (stats_done - setup_start) / 1e9))
+      print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Stats complete, starting compute_pass_changes", (stats_done - setup_start) / 1e9))
 
       -- Update message
       vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', true)
@@ -117,7 +122,7 @@ function M.setup(source_bufnr, input_file, passes, config)
       -- Pre-compute which passes actually changed IR (async with callback)
       M.compute_pass_changes(function()
         local changes_done = vim.loop.hrtime()
-        print(string.format("[Pipeline] [%.3fs] Pass changes complete, finding first changed", (changes_done - setup_start) / 1e9))
+        print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Pass changes complete, finding first changed", (changes_done - setup_start) / 1e9))
 
         -- Start at first/last changed pass
         if config.start_at_final then
@@ -141,13 +146,13 @@ function M.setup(source_bufnr, input_file, passes, config)
         end
 
         local t = (vim.loop.hrtime() - setup_start) / 1e9
-        print(string.format("[Pipeline] [%.3fs] Building pass list...", t))
+        print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Building pass list...", t))
 
         -- Populate pass list
         M.populate_pass_list()
 
         t = (vim.loop.hrtime() - setup_start) / 1e9
-        print(string.format("[Pipeline] [%.3fs] Loading initial diff...", t))
+        print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Loading initial diff...", t))
 
         -- Show initial diff
         M.show_diff(M.state.current_index)
@@ -156,7 +161,7 @@ function M.setup(source_bufnr, input_file, passes, config)
         pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, {4, 0})
 
         t = (vim.loop.hrtime() - setup_start) / 1e9
-        print(string.format("[Pipeline] [%.3fs] ✓ Ready", t))
+        print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] ✓ Ready", t))
       end)
     end)
   end)
@@ -747,7 +752,7 @@ function M.compute_stats_async(callback)
     local elapsed_since_print = (current_time - last_print_time) / 1e9
     if chunk_start > 1 and elapsed_since_print >= 2.0 then
       local total_elapsed = (current_time - start_time) / 1e9
-      print(string.format("[Pipeline] [%.3fs] Computing statistics... (%d/%d passes)",
+      print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Computing statistics... (%d/%d passes)",
         total_elapsed, chunk_end, total_passes))
       last_print_time = current_time
       vim.cmd('redraw')  -- Force UI update
@@ -794,7 +799,7 @@ function M.compute_pass_changes(callback)
     local elapsed_since_print = (current_time - last_print_time) / 1e9
     if chunk_start > 1 and elapsed_since_print >= 2.0 then
       local total_elapsed = (current_time - start_time) / 1e9
-      print(string.format("[Pipeline] [%.3fs] Computing pass changes... (%d/%d passes)",
+      print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Computing pass changes... (%d/%d passes)",
         total_elapsed, chunk_end, total_passes))
       last_print_time = current_time
       vim.cmd('redraw')  -- Force UI update
