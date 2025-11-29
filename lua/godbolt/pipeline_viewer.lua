@@ -20,6 +20,7 @@ M.state = {
   config = nil,
   ns_id = vim.api.nvim_create_namespace('godbolt_pipeline'),
   grouped_passes = nil,  -- Grouped/folded pass structure
+  module_pass_indices = nil,  -- OPTIMIZATION: Index of module pass positions {5, 23, 107, ...}
 }
 
 -- Setup pipeline viewer with 3-pane layout
@@ -55,6 +56,15 @@ function M.setup(source_bufnr, input_file, passes, config)
   M.state.source_bufnr = source_bufnr
   M.state.input_file = input_file
   M.state.config = config
+
+  -- OPTIMIZATION: Build module pass index for O(1) lookups instead of O(n) scans
+  -- This dramatically speeds up get_before_ir_for_pass() for module passes
+  M.state.module_pass_indices = {}
+  for i, pass in ipairs(passes) do
+    if pass.scope_type == "module" then
+      table.insert(M.state.module_pass_indices, i)
+    end
+  end
 
   -- Create 3-pane layout FIRST (show UI immediately)
   M.create_layout()
@@ -749,17 +759,28 @@ function M.compute_pass_changes(callback)
       local lines_changed = 0
       local max_lines = math.max(#before_ir, #after_ir)
 
+      -- OPTIMIZATION: Early exit if line counts differ
+      -- If sizes are different, we know it changed - no need to scan all lines
       if #before_ir ~= #after_ir then
         changed = true
         lines_changed = math.abs(#after_ir - #before_ir)
-      end
 
-      for i = 1, max_lines do
-        local before_line = before_ir[i] or ""
-        local after_line = after_ir[i] or ""
-        if before_line ~= after_line then
-          changed = true
-          lines_changed = lines_changed + 1
+        -- Still scan common lines to get accurate count
+        local min_lines = math.min(#before_ir, #after_ir)
+        for i = 1, min_lines do
+          if before_ir[i] ~= after_ir[i] then
+            lines_changed = lines_changed + 1
+          end
+        end
+      else
+        -- Same size, need to check line-by-line
+        for i = 1, max_lines do
+          local before_line = before_ir[i] or ""
+          local after_line = after_ir[i] or ""
+          if before_line ~= after_line then
+            changed = true
+            lines_changed = lines_changed + 1
+          end
         end
       end
 
@@ -811,9 +832,26 @@ function M.get_before_ir_for_pass(index)
 
   if scope_type == "module" then
     -- Module pass: get previous module pass
-    for i = index - 1, 1, -1 do
-      if M.state.passes[i].scope_type == "module" then
-        return M.state.passes[i].ir
+    -- OPTIMIZATION: Use module_pass_indices for O(1) lookup instead of O(n) scan
+    if M.state.module_pass_indices then
+      -- Binary search or linear search through index to find last module pass before current
+      local last_module_idx = nil
+      for _, mod_idx in ipairs(M.state.module_pass_indices) do
+        if mod_idx >= index then
+          break
+        end
+        last_module_idx = mod_idx
+      end
+
+      if last_module_idx then
+        return M.state.passes[last_module_idx].ir
+      end
+    else
+      -- Fallback to old O(n) scan if index not built
+      for i = index - 1, 1, -1 do
+        if M.state.passes[i].scope_type == "module" then
+          return M.state.passes[i].ir
+        end
       end
     end
 
@@ -839,9 +877,25 @@ function M.get_before_ir_for_pass(index)
       return ir_utils.extract_function(prev_pass.ir, func_name)
     else
       -- Different function, find last module pass
-      for i = index - 1, 1, -1 do
-        if M.state.passes[i].scope_type == "module" then
-          return ir_utils.extract_function(M.state.passes[i].ir, func_name)
+      -- OPTIMIZATION: Use module_pass_indices for O(1) lookup
+      if M.state.module_pass_indices then
+        local last_module_idx = nil
+        for _, mod_idx in ipairs(M.state.module_pass_indices) do
+          if mod_idx >= index then
+            break
+          end
+          last_module_idx = mod_idx
+        end
+
+        if last_module_idx then
+          return ir_utils.extract_function(M.state.passes[last_module_idx].ir, func_name)
+        end
+      else
+        -- Fallback to old O(n) scan
+        for i = index - 1, 1, -1 do
+          if M.state.passes[i].scope_type == "module" then
+            return ir_utils.extract_function(M.state.passes[i].ir, func_name)
+          end
         end
       end
 

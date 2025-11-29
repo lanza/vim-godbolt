@@ -80,10 +80,14 @@ function M.extract_function(ir_lines, func_name)
   local in_target_function = false
   local brace_count = 0
 
+  -- OPTIMIZATION: Pre-compile regex pattern once instead of on every line
+  -- Escaping special regex characters in function name
+  local escaped_name = func_name:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1")
+  local pattern = "^define .* @" .. escaped_name .. "%("
+
   for _, line in ipairs(ir_lines) do
     -- Check if this is the start of our target function
-    if line:match("^define .* @" .. func_name .. "%(") or
-       line:match("^define .* @" .. func_name .. "%(") then
+    if not in_target_function and line:match(pattern) then
       in_target_function = true
       brace_count = 0
       table.insert(func_ir, line)
