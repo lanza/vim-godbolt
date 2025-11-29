@@ -224,7 +224,10 @@ run_opt_pipeline_async = function(input_file, passes_str, opts, callback)
 
       -- Parse the pipeline output
       print(string.format("[Pipeline] ✓ Compilation completed in %.1fs, parsing passes...", elapsed))
+      local parse_start = vim.loop.hrtime()
       local passes, _ = M.parse_pipeline_output(output)
+      local parse_elapsed = (vim.loop.hrtime() - parse_start) / 1e9
+      print(string.format("[Pipeline] ✓ Parsing completed in %.1fs (%d passes)", parse_elapsed, #passes))
       callback(passes)
     end)
   end)
@@ -387,7 +390,10 @@ run_clang_pipeline_async = function(input_file, passes_str, lang_args, opts, cal
 
       -- Parse pipeline output
       print(string.format("[Pipeline] ✓ Compilation completed in %.1fs, parsing passes...", elapsed))
+      local parse_start = vim.loop.hrtime()
       local passes, initial_ir = M.parse_pipeline_output(output, "clang")
+      local parse_elapsed = (vim.loop.hrtime() - parse_start) / 1e9
+      print(string.format("[Pipeline] ✓ Parsing completed in %.1fs (%d passes)", parse_elapsed, #passes))
 
       -- Cache initial IR
       if initial_ir then
