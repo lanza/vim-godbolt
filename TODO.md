@@ -58,42 +58,100 @@
     - `-fno-discard-value-names` - Keep SSA value names
     - `-fstandalone-debug` - Complete debug info
 
+### Pipeline Viewer - Performance Optimizations (Session 2025-01-28)
+- [x] **Pre-compile Regex Patterns** - Avoid recompiling on every line
+  - In `ir_utils.extract_function()`, compile regex once before loop
+  - Impact: 2-3x faster function extraction
+  - Location: `ir_utils.lua` lines 83-86
+
+- [x] **Build Module Pass Index** - O(1) module pass lookups
+  - Create index array during initial parse: `{5, 23, 107, ...}` = module pass indices
+  - Replace backward O(n) scan with O(1) index lookup
+  - Impact: 100x faster module pass lookups (scans 56K → lookup 1)
+  - Location: `pipeline_viewer.lua` lines 55-68
+
+- [x] **Early Exit on Line Count Mismatch** - Skip unnecessary line scans
+  - If `#before_ir != #after_ir`, set `lines_changed = abs(diff)` and skip loop
+  - Impact: 2x faster for passes with IR size changes
+  - Location: `pipeline_viewer.lua` lines 762-785
+
+- [x] **Async Stats Computation** - Eliminate 3-8s UI freeze
+  - Chunked processing with progress indicators
+  - Impact: UI responsive throughout stats computation
+  - Location: `pipeline_viewer.lua` lines 700-743
+
+- [x] **Async Parsing with Chunking** - Eliminate 9.8s UI freeze
+  - Process compiler output in 500-line chunks
+  - Defer IR cleaning to end (batch all heavy work)
+  - Impact: UI responsive during parsing, reduced per-chunk jitter
+  - Location: `pipeline.lua` lines 536-752
+
+- [x] **Wall-Clock Timestamps** - Performance debugging
+  - All Pipeline messages include [HH:MM:SS] timestamps
+  - Helps identify bottlenecks in processing pipeline
+  - Location: All pipeline*.lua and godbolt.lua files
+
 ## Pending Features
 
 ### Pipeline Viewer - Performance Optimizations
 *(For handling 56K+ pass pipelines efficiently)*
 
-#### Quick Wins (1 hour total implementation)
+#### Quick Wins (< 1 hour each)
 - [ ] **Add --print-before-all Flag** - Eliminate expensive before_ir reconstruction
   - Add both `--print-changed` AND `--print-before-all` to compilation flags
   - Trade-off: Output 1MB → 2MB (still 25x smaller than --print-before-all alone)
   - Impact: Eliminates 100% of reconstruction → 10-20x faster compute_pass_changes
-  - Location: `pipeline.lua` lines 158, 293-294
+  - Location: `pipeline.lua` lines 301, 446
 
-- [ ] **Pre-compile Regex Patterns** - Avoid recompiling on every line
-  - In `ir_utils.extract_function()`, compile regex once before loop
-  - Currently compiles 10K+ regexes for large modules
-  - Impact: 2-3x faster function extraction
-  - Location: `ir_utils.lua` line 85-86
+- [ ] **Optimize parse_pass_header() Regex** ⭐ High Impact
+  - Currently does 8 separate regex matches per line (called ~7M times)
+  - Consolidate into single regex with capture groups OR use string.find() with plain text
+  - Pre-compile all patterns once at module load time
+  - Impact: 2-3x faster parsing (9.8s → ~4s)
+  - Location: `pipeline.lua` lines 59-120
 
-- [ ] **Build Module Pass Index** - O(1) module pass lookups
-  - Create index array during initial parse: `{5, 23, 107, ...}` = module pass indices
-  - Replace backward O(n) scan with O(1) index lookup
-  - Impact: 100x faster module pass lookups (scans 56K → lookup 1)
-  - Location: `pipeline_viewer.lua` line 812-825
+- [ ] **Use vim.split() for Line Splitting** - Native function faster than gmatch
+  - Replace `output:gmatch("[^\r\n]+")` with `vim.split(output, "\n", {plain=true})`
+  - Impact: 10-20% faster parsing
+  - Location: `pipeline.lua` line 563
 
-- [ ] **Early Exit on Line Count Mismatch** - Skip unnecessary line scans
-  - If `#before_ir != #after_ir`, set `lines_changed = abs(diff)` and skip loop
-  - Impact: 2x faster for passes with IR size changes
-  - Location: `pipeline_viewer.lua` line 752-755
+- [ ] **Skip Unchanged Passes in Diff Computation** - Leverage --print-changed metadata
+  - Passes marked `changed = false` don't need diff computation
+  - Impact: 50% less diff work (skip ~45K of 90K passes)
+  - Location: `pipeline_viewer.lua` line 760
 
 #### Medium Effort (4-8 hours total)
+- [ ] **Lazy IR Cleaning** ⭐ High Impact
+  - Don't call `ir_utils.clean_ir()` during parsing or even in batch at end
+  - Clean IR only when user navigates to a pass and views it
+  - Mark IR as `raw = true`, clean on first access and cache
+  - Impact: Eliminates 90% of IR cleaning work (most passes never viewed)
+  - Location: `pipeline.lua` lines 580-594, `pipeline_viewer.lua` show_diff()
+
 - [ ] **Lazy Computation of Pass Changes** ⭐ High Priority
   - Don't compute diff_stats for all 56K passes at startup
   - Compute on-demand when user navigates to pass or unfolds group
   - Show "Computing..." only for visible/accessed passes
   - Impact: Initial load 100x faster (compute 10-50 instead of 56K)
   - Architecture: Mark `diff_stats = nil` initially, lazy-evaluate on access
+
+- [ ] **Virtual Scrolling for Pass List** - Eliminate 90K line rendering
+  - Only render visible rows in pass list buffer
+  - Dynamically update as user scrolls
+  - Impact: Instant pass list display (render 30 lines vs 90K)
+  - Architecture: Requires rewrite of populate_pass_list()
+
+- [ ] **IR Deduplication** - Reduce memory for unchanged passes
+  - Many passes have identical IR (especially with --print-changed)
+  - Store unique IR blocks once, reference from multiple passes
+  - Hash-based deduplication: `ir_cache[hash] = ir_lines`
+  - Impact: Memory reduction 50-70% (90K passes → ~30K unique IRs)
+
+- [ ] **Hash-Based IR Comparison** - O(1) equality check
+  - SHA256 hash each IR array, compare hashes first
+  - Only do line-by-line scan if hashes differ (to count lines)
+  - Impact: 5-10x faster for large functions (10K+ lines)
+  - Location: `pipeline_viewer.lua` line 747-764
 
 - [ ] **Function Extraction Cache with LRU** - Avoid re-extraction
   - Cache: `hash(module_ir) .. ":" .. func_name → extracted_ir`
@@ -108,19 +166,39 @@
   - Complements existing compile-time `--filter-print-funcs` (line 70)
   - Impact: 56K passes with 1000 funcs → filter to 10 → 5-10x speedup
 
-- [ ] **Hash-Based IR Comparison** - O(1) equality check
-  - SHA256 hash each IR array, compare hashes first
-  - Only do line-by-line scan if hashes differ (to count lines)
-  - Impact: 5-10x faster for large functions (10K+ lines)
-  - Location: `pipeline_viewer.lua` line 747-764
-
 #### Long Term (1-2 days)
+- [ ] **Background Parsing with Separate Process** ⭐ Ultimate Solution
+  - Spawn separate Lua process using `vim.system()` to parse compiler output
+  - Main thread stays completely responsive (no chunking needed)
+  - Communicate via JSON messages over stdin/stdout
+  - Impact: Zero UI jitter, true parallelism
+  - Architecture: Create standalone `parser.lua` script + IPC protocol
+
 - [ ] **Streaming/Incremental Parsing Architecture** - Handle 500K+ pipelines
   - Parse only headers/metadata initially (name, scope, changed flag)
   - Load IR on-demand when navigating to pass
   - Store IR in temp files/DB, not in-memory
   - Impact: Initial load instant, memory 560MB → 5MB
   - Major architectural change to state management
+
+- [ ] **SQLite Backend for Large Pipelines** - Database-backed storage
+  - Store pass metadata + IR in SQLite database
+  - Indexed queries for filtering, searching
+  - Lazy load IR from DB when viewing pass
+  - Impact: Handle millions of passes, constant memory usage
+  - Architecture: Replace in-memory `passes` table with DB abstraction
+
+- [ ] **Pre-allocate Tables with Size Hints** - Reduce allocation overhead
+  - First pass: count pass boundaries to know table sizes
+  - Second pass: pre-allocate tables, fill in data
+  - Impact: 10-15% faster parsing (less GC pressure)
+  - Location: `pipeline.lua` parse_pipeline_output_async()
+
+- [ ] **String Interning** - Reduce memory for repeated strings
+  - Pass names repeated many times (e.g., "InstCombinePass" x 10K)
+  - Function names repeated across passes
+  - Intern strings: store once, reference many times
+  - Impact: Memory reduction 20-30%
 
 ---
 
