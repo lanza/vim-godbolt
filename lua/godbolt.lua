@@ -586,7 +586,8 @@ function M.godbolt_pipeline(args_str)
       return
     end
 
-    print(string.format("[Pipeline] Captured %d pass stages", #passes))
+    local callback_time = vim.loop.hrtime()
+    print(string.format("[Pipeline] [CALLBACK] Captured %d passes", #passes))
 
     -- Setup pipeline viewer
     local ok, pipeline_viewer = pcall(require, 'godbolt.pipeline_viewer')
@@ -596,9 +597,13 @@ function M.godbolt_pipeline(args_str)
         display = M.config.display
       })
 
+      local setup_start = vim.loop.hrtime()
+      print(string.format("[Pipeline] [CALLBACK +%.3fs] Calling pipeline_viewer.setup", (setup_start - callback_time) / 1e9))
+
       pipeline_viewer.setup(source_bufnr, file, passes, viewer_config)
 
-      print(string.format("[Pipeline] ✓ Pipeline viewer ready with %d passes", #passes))
+      local setup_end = vim.loop.hrtime()
+      print(string.format("[Pipeline] [CALLBACK +%.3fs] setup() returned", (setup_end - callback_time) / 1e9))
     else
       print("[Pipeline] Failed to load pipeline viewer")
     end

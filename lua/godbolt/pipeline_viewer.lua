@@ -29,6 +29,9 @@ M.state = {
 -- @param passes: array of {name, ir} from pipeline.parse_pipeline_output
 -- @param config: configuration table
 function M.setup(source_bufnr, input_file, passes, config)
+  local setup_start = vim.loop.hrtime()
+  print(string.format("[Pipeline] [%.3fs] setup() called with %d passes", 0, #passes))
+
   config = config or {}
 
   -- Default config
@@ -46,6 +49,9 @@ function M.setup(source_bufnr, input_file, passes, config)
     print(string.format("[Pipeline] Filtered to %d passes that changed IR", #passes))
   end
 
+  local t = (vim.loop.hrtime() - setup_start) / 1e9
+  print(string.format("[Pipeline] [%.3fs] Storing state", t))
+
   -- Store state EARLY (before any heavy computation)
   M.state.passes = passes
   M.state.source_bufnr = source_bufnr
@@ -61,8 +67,14 @@ function M.setup(source_bufnr, input_file, passes, config)
     end
   end
 
+  t = (vim.loop.hrtime() - setup_start) / 1e9
+  print(string.format("[Pipeline] [%.3fs] Creating layout", t))
+
   -- Create 3-pane layout FIRST (show UI immediately, before any stats computation!)
   M.create_layout()
+
+  t = (vim.loop.hrtime() - setup_start) / 1e9
+  print(string.format("[Pipeline] [%.3fs] Layout created, showing placeholder", t))
 
   -- Show "Computing..." message in pass list
   vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', true)
@@ -74,17 +86,25 @@ function M.setup(source_bufnr, input_file, passes, config)
   })
   vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', false)
 
+  t = (vim.loop.hrtime() - setup_start) / 1e9
+  print(string.format("[Pipeline] [%.3fs] Setting up keymaps", t))
+
   -- Set up key mappings early
   M.setup_keymaps()
 
+  t = (vim.loop.hrtime() - setup_start) / 1e9
+  print(string.format("[Pipeline] [%.3fs] Scheduling async computation", t))
+
   -- Defer ALL heavy computation to async chunks to avoid UI freeze
   vim.schedule(function()
-    print("[Pipeline] Computing statistics...")
+    local async_start = vim.loop.hrtime()
+    print(string.format("[Pipeline] [%.3fs] Starting compute_stats_async", (async_start - setup_start) / 1e9))
 
     -- OPTIMIZATION: Compute stats asynchronously in chunks to avoid UI freeze
     -- Previously this was a synchronous loop causing 3-8 second freeze
     M.compute_stats_async(function()
-      print("[Pipeline] Computing pass changes...")
+      local stats_done = vim.loop.hrtime()
+      print(string.format("[Pipeline] [%.3fs] Stats complete, starting compute_pass_changes", (stats_done - setup_start) / 1e9))
 
       -- Update message
       vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', true)
@@ -95,6 +115,9 @@ function M.setup(source_bufnr, input_file, passes, config)
 
       -- Pre-compute which passes actually changed IR (async with callback)
       M.compute_pass_changes(function()
+        local changes_done = vim.loop.hrtime()
+        print(string.format("[Pipeline] [%.3fs] Pass changes complete, finding first changed", (changes_done - setup_start) / 1e9))
+
         -- Start at first/last changed pass
         if config.start_at_final then
           -- Find last changed pass
@@ -116,12 +139,14 @@ function M.setup(source_bufnr, input_file, passes, config)
           end
         end
 
-        print("[Pipeline] Building pass list...")
+        local t = (vim.loop.hrtime() - setup_start) / 1e9
+        print(string.format("[Pipeline] [%.3fs] Building pass list...", t))
 
         -- Populate pass list
         M.populate_pass_list()
 
-        print("[Pipeline] Loading initial diff...")
+        t = (vim.loop.hrtime() - setup_start) / 1e9
+        print(string.format("[Pipeline] [%.3fs] Loading initial diff...", t))
 
         -- Show initial diff
         M.show_diff(M.state.current_index)
@@ -129,7 +154,8 @@ function M.setup(source_bufnr, input_file, passes, config)
         -- Position cursor on first pass entry (header + separator + blank + first pass = line 4)
         pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, {4, 0})
 
-        print("[Pipeline] ✓ Ready")
+        t = (vim.loop.hrtime() - setup_start) / 1e9
+        print(string.format("[Pipeline] [%.3fs] ✓ Ready", t))
       end)
     end)
   end)
