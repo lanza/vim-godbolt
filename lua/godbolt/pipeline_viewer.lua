@@ -714,6 +714,18 @@ function M.compute_pass_changes(callback)
     for index = chunk_start, chunk_end do
       local pass = M.state.passes[index]
 
+      -- OPTIMIZATION: Skip expensive IR comparison for passes pre-marked as unchanged (--print-changed)
+      if pass.changed == false then
+        -- Pass was omitted by LLVM (--print-changed), so we know it didn't change
+        -- Set diff_stats to 0 without expensive comparison
+        pass.diff_stats = {
+          lines_changed = 0,
+          lines_before = #(pass.ir or {}),
+          lines_after = #(pass.ir or {}),
+        }
+        goto continue
+      end
+
       -- Get before IR - use stored before_ir if available, otherwise reconstruct
       local before_ir
       if pass.before_ir then
@@ -757,6 +769,8 @@ function M.compute_pass_changes(callback)
         lines_before = #before_ir,
         lines_after = #after_ir,
       }
+
+      ::continue::
     end
 
     -- Schedule next chunk (yields to event loop for UI responsiveness)

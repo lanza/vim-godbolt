@@ -45,46 +45,73 @@ end
 
 -- Helper: Parse pass header to extract scope information
 -- @param pass_line: line containing pass boundary marker
--- @return: pass_name, scope_type, scope_target
+-- @return: pass_name, scope_type, scope_target, is_before, is_omitted
 --   pass_name: base pass name (e.g., "SROAPass")
 --   scope_type: "module" | "function" | "cgscc" | "unknown"
 --   scope_target: "[module]" | "quicksort" | "quicksort" (CGSCC without parens)
+--   is_before: true if this is a "Before" dump
+--   is_omitted: true if this pass was omitted (--print-changed only)
 local function parse_pass_header(pass_line)
-  -- Try "After" pattern first
-  local pass_info = pass_line:match("^; %*%*%* IR Dump After (.-)%s+%*%*%*$")
-  local is_before = false
+  -- --print-changed format (no semicolon): "*** IR Dump After PassName on target ***"
+  -- --print-after-all format (with semicolon): "; *** IR Dump After PassName on target ***"
+  -- Handle both formats
+  local pass_info, is_before, is_omitted
+
+  -- Try "After" pattern with semicolon (--print-after-all)
+  pass_info = pass_line:match("^; %*%*%* IR Dump After (.-)%s+%*%*%*$")
+  is_before = false
+  is_omitted = false
 
   if not pass_info then
-    -- Try "Before" pattern
+    -- Try "After" pattern without semicolon (--print-changed)
+    pass_info = pass_line:match("^%*%*%* IR Dump After (.-)%s+%*%*%*$")
+  end
+
+  if not pass_info then
+    -- Try "Before" pattern with semicolon
     pass_info = pass_line:match("^; %*%*%* IR Dump Before (.-)%s+%*%*%*$")
     is_before = true
   end
 
   if not pass_info then
-    return nil, nil, nil, nil
+    -- Try "Before" pattern without semicolon
+    pass_info = pass_line:match("^%*%*%* IR Dump Before (.-)%s+%*%*%*$")
+    is_before = true
+  end
+
+  if not pass_info then
+    return nil, nil, nil, nil, nil
+  end
+
+  -- Check if pass was omitted (--print-changed only)
+  -- Format: "PassName on target omitted because no change"
+  local pass_info_without_omit = pass_info:match("^(.+) omitted because no change$")
+  if pass_info_without_omit then
+    pass_info = pass_info_without_omit
+    is_omitted = true
   end
 
   -- Check for module pass: "PassName on [module]"
   local pass_name, module_marker = pass_info:match("^(.+) on (%[module%])$")
   if module_marker then
-    return pass_name, "module", module_marker, is_before
+    return pass_name, "module", module_marker, is_before, is_omitted
   end
 
   -- Check for CGSCC pass: "PassName on (func)"
   -- Extract the function name from inside parentheses
   local pass_name_cgscc, cgscc_content = pass_info:match("^(.+) on %((.+)%)$")
   if cgscc_content then
-    return pass_name_cgscc, "cgscc", cgscc_content, is_before
+    return pass_name_cgscc, "cgscc", cgscc_content, is_before, is_omitted
   end
 
   -- Check for function pass: "PassName on func"
   local pass_name_func, func_name = pass_info:match("^(.+) on (.+)$")
   if func_name then
-    return pass_name_func, "function", func_name, is_before
+    return pass_name_func, "function", func_name, is_before, is_omitted
   end
 
   -- Pass without scope (shouldn't happen with -print-after-all, but handle gracefully)
-  return pass_info, "unknown", nil, is_before
+  return pass_info, "unknown", nil, is_before, is_omitted
 end
 
 -- Run optimization pipeline and capture intermediate IR at each pass
@@ -128,7 +155,7 @@ end
 -- Run opt pipeline (LLVM IR files) - ASYNC VERSION
 run_opt_pipeline_async = function(input_file, passes_str, opts, callback)
   local cmd = string.format(
-    'opt --strip-debug -passes="%s" --print-after-all -S "%s" 2>&1',
+    'opt --strip-debug -passes="%s" --print-changed -S "%s" 2>&1',
     passes_str,
     input_file
   )
@@ -263,7 +290,7 @@ run_clang_pipeline_async = function(input_file, passes_str, lang_args, opts, cal
   -- Build command
   local cmd_parts = {
     compiler,
-    "-mllvm", "-print-after-all",
+    "-mllvm", "-print-changed",
     "-mllvm", "-print-before-pass-number=1",
     opt_level,
     "-fno-discard-value-names",
@@ -401,10 +428,10 @@ run_clang_pipeline = function(input_file, passes_str, lang_args, opts)
   -- Determine compiler (use from opts or default to clang/clang++)
   local compiler = opts.compiler or (input_file:match("%.cpp$") and "clang++" or "clang")
 
-  -- Build command: clang -mllvm -print-after-all -mllvm -print-before-pass-number=1 <opt-level> <args> -S -emit-llvm -o /dev/null file.c
+  -- Build command: clang -mllvm -print-changed -mllvm -print-before-pass-number=1 <opt-level> <args> -S -emit-llvm -o /dev/null file.c
   local cmd_parts = {
     compiler,
-    "-mllvm", "-print-after-all",
+    "-mllvm", "-print-changed",
     "-mllvm", "-print-before-pass-number=1",
     opt_level,
   }
@@ -513,18 +540,25 @@ function M.parse_pipeline_output(output, source_type)
   local pass_boundary_count = 0
   local seen_module_id = false
 
+  -- Track last IR for each scope (for --print-changed optimization)
+  -- When a pass is omitted, we copy IR from the appropriate last_* variable
+  local last_module_ir = nil  -- Last module-scoped IR
+  local last_ir_by_function = {}  -- last_ir_by_function["foo"] = {...}
+  local last_ir_by_cgscc = {}  -- last_ir_by_cgscc["foo"] = {...}
+
   for line in output:gmatch("[^\r\n]+") do
     line_count = line_count + 1
 
     -- Try to parse pass header to extract scope information
-    local pass_name, scope_type, scope_target, is_before = parse_pass_header(line)
+    local pass_name, scope_type, scope_target, is_before, is_omitted = parse_pass_header(line)
 
     if pass_name then
       pass_boundary_count = pass_boundary_count + 1
 
       if M.debug then
-        print(string.format("[Pipeline Debug] Found %s boundary at line %d: '%s' (scope: %s, target: %s)",
-          is_before and "Before" or "After", line_count, pass_name, scope_type or "none", scope_target or "none"))
+        local omit_str = is_omitted and " (OMITTED)" or ""
+        print(string.format("[Pipeline Debug] Found %s boundary at line %d: '%s' (scope: %s, target: %s)%s",
+          is_before and "Before" or "After", line_count, pass_name, scope_type or "none", scope_target or "none", omit_str))
       end
 
       -- Save previous pass/before dump if exists
@@ -549,13 +583,24 @@ function M.parse_pipeline_output(output, source_type)
           -- This is an "After" dump - save as pass with before_ir if available
           -- Validate it's LLVM IR before saving (filter out MIR, assembly, etc.)
           if is_llvm_ir(current_ir) or #current_ir == 0 then
+            local cleaned_ir = ir_utils.clean_ir(current_ir, current_scope_type)
             table.insert(passes, {
               name = current_pass,
               scope_type = current_scope_type,
               scope_target = current_scope_target,
-              ir = ir_utils.clean_ir(current_ir, current_scope_type),
+              ir = cleaned_ir,
               before_ir = current_before_ir,  -- Attach the before IR
             })
+
+            -- Update last IR tracking for --print-changed
+            if current_scope_type == "module" then
+              last_module_ir = cleaned_ir
+            elseif current_scope_type == "function" and current_scope_target then
+              last_ir_by_function[current_scope_target] = cleaned_ir
+            elseif current_scope_type == "cgscc" and current_scope_target then
+              last_ir_by_cgscc[current_scope_target] = cleaned_ir
+            end
+
             if M.debug then
               local before_info = current_before_ir and string.format(" (with before: %d lines)", #current_before_ir) or ""
               print(string.format("[Pipeline Debug] Saved pass '%s' with %d IR lines%s", current_pass, #current_ir, before_info))
@@ -570,28 +615,95 @@ function M.parse_pipeline_output(output, source_type)
         end
       end
 
-      -- Start new pass
-      -- Reconstruct full pass name with scope for display
-      if scope_target then
-        current_pass = pass_name .. " on " .. (scope_type == "module" and scope_target or
-                                                scope_type == "cgscc" and "(" .. scope_target .. ")" or
-                                                scope_target)
+      -- Handle omitted passes (--print-changed only)
+      if is_omitted then
+        -- Reconstruct full pass name with scope for display
+        if scope_target then
+          current_pass = pass_name .. " on " .. (scope_type == "module" and scope_target or
+                                                  scope_type == "cgscc" and "(" .. scope_target .. ")" or
+                                                  scope_target)
+        else
+          current_pass = pass_name
+        end
+
+        -- Copy IR from appropriate last_* variable
+        local copied_ir = nil
+        if scope_type == "module" then
+          copied_ir = last_module_ir or initial_ir
+        elseif scope_type == "function" and scope_target then
+          copied_ir = last_ir_by_function[scope_target]
+          -- Fallback: If this function hasn't appeared yet, try to extract from last module
+          if not copied_ir and last_module_ir then
+            copied_ir = ir_utils.extract_function(last_module_ir, scope_target)
+            if copied_ir and #copied_ir > 0 then
+              last_ir_by_function[scope_target] = copied_ir
+            end
+          end
+        elseif scope_type == "cgscc" and scope_target then
+          copied_ir = last_ir_by_cgscc[scope_target]
+          -- Fallback: Try extracting from module
+          if not copied_ir and last_module_ir then
+            copied_ir = ir_utils.extract_function(last_module_ir, scope_target)
+            if copied_ir and #copied_ir > 0 then
+              last_ir_by_cgscc[scope_target] = copied_ir
+            end
+          end
+        end
+
+        if copied_ir then
+          table.insert(passes, {
+            name = current_pass,
+            scope_type = scope_type,
+            scope_target = scope_target,
+            ir = copied_ir,
+            changed = false,  -- Mark as unchanged for optimization
+          })
+          if M.debug then
+            print(string.format("[Pipeline Debug] Saved omitted pass '%s' with copied IR (%d lines)", current_pass, #copied_ir))
+          end
+        else
+          if M.debug then
+            print(string.format("[Pipeline Debug] WARNING: Could not copy IR for omitted pass '%s'", current_pass))
+          end
+        end
+
+        -- Reset state for next pass (omitted passes have no IR content)
+        current_pass = nil
+        current_scope_type = nil
+        current_scope_target = nil
+        current_ir = {}
+        current_is_before = false
+        seen_module_id = false
       else
-        current_pass = pass_name
+        -- Start new pass (not omitted)
+        -- Reconstruct full pass name with scope for display
+        if scope_target then
+          current_pass = pass_name .. " on " .. (scope_type == "module" and scope_target or
+                                                  scope_type == "cgscc" and "(" .. scope_target .. ")" or
+                                                  scope_target)
+        else
+          current_pass = pass_name
+        end
+        current_scope_type = scope_type
+        current_scope_target = scope_target
+        current_is_before = is_before
+        current_ir = {}
+        seen_module_id = false
       end
-      current_scope_type = scope_type
-      current_scope_target = scope_target
-      current_is_before = is_before
-      current_ir = {}
-      seen_module_id = false
 
     elseif current_pass then
       -- Detect final output (ModuleID in stdout means we're done with pass dumps)
-      -- NOTE: For opt, ModuleID only appears in final stdout output
-      -- For clang, ModuleID appears at the start of each pass dump, so we ignore it
-      if source_type == "opt" and line:match("^; ModuleID = ") then
-        -- Any ModuleID means we've hit opt's stdout (final output)
-        -- Function-scoped dumps don't have ModuleIDs
+      -- NOTE: With --print-after-all, ModuleID only appears in final stdout
+      -- But with --print-changed, module passes include ModuleID in their dumps!
+      -- So we can't use ModuleID as an early-exit signal anymore.
+      -- Instead, just keep collecting IR and let the pass parsing handle it.
+      -- The final stdout will be there but won't match any dump headers.
+      --
+      -- For clang, ModuleID appears at the start of each pass dump, so we never used this anyway.
+      if source_type == "opt" and line:match("^; ModuleID = ") and #current_ir > 20 then
+        -- ONLY treat as final output if we've collected substantial IR (>20 lines)
+        -- If current_ir is nearly empty, we just started a module pass dump
+        -- (--print-changed includes ModuleID in module pass dumps)
         if M.debug then
           print(string.format("[Pipeline Debug] Found final output at line %d, stopping collection", line_count))
         end
