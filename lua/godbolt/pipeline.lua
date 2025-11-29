@@ -171,7 +171,7 @@ run_opt_pipeline_async = function(input_file, passes_str, opts, callback)
   print("[Pipeline] ⏳ Compiling... (UI stays responsive)")
 
   -- Show progress every 2 seconds
-  timer:start(2000, 2000, vim.schedule_wrap(function()
+  timer:start(1000, 1000, vim.schedule_wrap(function()
     if not timer_cancelled then
       local elapsed = (vim.loop.hrtime() - start_time) / 1e9  -- Convert to seconds
       print(string.format("[Pipeline] ⏳ Still compiling... (%ds elapsed)", math.floor(elapsed)))
@@ -334,7 +334,7 @@ run_clang_pipeline_async = function(input_file, passes_str, lang_args, opts, cal
   print("[Pipeline] ⏳ Compiling... (UI stays responsive)")
 
   -- Show progress every 2 seconds
-  timer:start(2000, 2000, vim.schedule_wrap(function()
+  timer:start(1000, 1000, vim.schedule_wrap(function()
     if not timer_cancelled then
       local elapsed = (vim.loop.hrtime() - start_time) / 1e9  -- Convert to seconds
       print(string.format("[Pipeline] ⏳ Still compiling... (%ds elapsed)", math.floor(elapsed)))

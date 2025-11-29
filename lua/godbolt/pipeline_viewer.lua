@@ -46,12 +46,7 @@ function M.setup(source_bufnr, input_file, passes, config)
     print(string.format("[Pipeline] Filtered to %d passes that changed IR", #passes))
   end
 
-  -- Calculate statistics for each pass
-  for i, pass in ipairs(passes) do
-    pass.stats = stats.count(pass.ir)
-  end
-
-  -- Store state
+  -- Store state EARLY (before any heavy computation)
   M.state.passes = passes
   M.state.source_bufnr = source_bufnr
   M.state.input_file = input_file
@@ -66,7 +61,7 @@ function M.setup(source_bufnr, input_file, passes, config)
     end
   end
 
-  -- Create 3-pane layout FIRST (show UI immediately)
+  -- Create 3-pane layout FIRST (show UI immediately, before any stats computation!)
   M.create_layout()
 
   -- Show "Computing..." message in pass list
@@ -75,55 +70,67 @@ function M.setup(source_bufnr, input_file, passes, config)
     string.format("Optimization Pipeline (%d passes)", #passes),
     string.rep("-", 40),
     "",
-    "⏳ Computing pass changes...",
+    "⏳ Computing statistics...",
   })
   vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', false)
 
   -- Set up key mappings early
   M.setup_keymaps()
 
-  -- Defer heavy computation to next event loop tick
+  -- Defer ALL heavy computation to async chunks to avoid UI freeze
   vim.schedule(function()
-    print("[Pipeline] Computing pass changes...")
+    print("[Pipeline] Computing statistics...")
 
-    -- Pre-compute which passes actually changed IR (now async with callback)
-    -- This allows us to gray out no-op passes in the list
-    M.compute_pass_changes(function()
-      -- Start at first/last changed pass
-      if config.start_at_final then
-        -- Find last changed pass
-        M.state.current_index = #passes
-        for i = #passes, 1, -1 do
-          if passes[i].changed then
-            M.state.current_index = i
-            break
+    -- OPTIMIZATION: Compute stats asynchronously in chunks to avoid UI freeze
+    -- Previously this was a synchronous loop causing 3-8 second freeze
+    M.compute_stats_async(function()
+      print("[Pipeline] Computing pass changes...")
+
+      -- Update message
+      vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', true)
+      vim.api.nvim_buf_set_lines(M.state.pass_list_bufnr, 3, 4, false, {
+        "⏳ Computing pass changes...",
+      })
+      vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', false)
+
+      -- Pre-compute which passes actually changed IR (async with callback)
+      M.compute_pass_changes(function()
+        -- Start at first/last changed pass
+        if config.start_at_final then
+          -- Find last changed pass
+          M.state.current_index = #passes
+          for i = #passes, 1, -1 do
+            if passes[i].changed then
+              M.state.current_index = i
+              break
+            end
+          end
+        else
+          -- Find first changed pass
+          M.state.current_index = 1
+          for i = 1, #passes do
+            if passes[i].changed then
+              M.state.current_index = i
+              break
+            end
           end
         end
-      else
-        -- Find first changed pass
-        M.state.current_index = 1
-        for i = 1, #passes do
-          if passes[i].changed then
-            M.state.current_index = i
-            break
-          end
-        end
-      end
 
-      print("[Pipeline] Building pass list...")
+        print("[Pipeline] Building pass list...")
 
-      -- Populate pass list
-      M.populate_pass_list()
+        -- Populate pass list
+        M.populate_pass_list()
 
-      print("[Pipeline] Loading initial diff...")
+        print("[Pipeline] Loading initial diff...")
 
-      -- Show initial diff
-      M.show_diff(M.state.current_index)
+        -- Show initial diff
+        M.show_diff(M.state.current_index)
 
-      -- Position cursor on first pass entry (header + separator + blank + first pass = line 4)
-      pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, {4, 0})
+        -- Position cursor on first pass entry (header + separator + blank + first pass = line 4)
+        pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, {4, 0})
 
-      print("[Pipeline] ✓ Ready")
+        print("[Pipeline] ✓ Ready")
+      end)
     end)
   end)
 end
@@ -688,6 +695,51 @@ end
 -- @return: function name (e.g., "foo" or "bar") or nil
 local function extract_function_name(pass_name)
   return pass_name:match(" on (.+)$")
+end
+
+-- Pre-compute statistics for all passes asynchronously in chunks
+-- OPTIMIZATION: Previously this was synchronous causing 3-8 second UI freeze
+-- Sets pass.stats for each pass
+function M.compute_stats_async(callback)
+  local total_passes = #M.state.passes
+  local chunk_size = 100  -- Larger chunks than compute_pass_changes since stats are simpler
+  local start_time = vim.loop.hrtime()
+  local last_print_time = start_time
+
+  local function process_chunk(chunk_start)
+    -- Check if we're done
+    if chunk_start > total_passes then
+      if callback then callback() end
+      return
+    end
+
+    local chunk_end = math.min(chunk_start + chunk_size - 1, total_passes)
+
+    -- Show progress every 2 seconds
+    local current_time = vim.loop.hrtime()
+    local elapsed_since_print = (current_time - last_print_time) / 1e9
+    if chunk_start > 1 and elapsed_since_print >= 2.0 then
+      local total_elapsed = (current_time - start_time) / 1e9
+      print(string.format("[Pipeline] Computing statistics... (%d/%d passes, %ds elapsed)",
+        chunk_end, total_passes, math.floor(total_elapsed)))
+      last_print_time = current_time
+      vim.cmd('redraw')  -- Force UI update
+    end
+
+    -- Process this chunk synchronously
+    for index = chunk_start, chunk_end do
+      local pass = M.state.passes[index]
+      pass.stats = stats.count(pass.ir)
+    end
+
+    -- Schedule next chunk (yields to event loop for UI responsiveness)
+    vim.schedule(function()
+      process_chunk(chunk_start + chunk_size)
+    end)
+  end
+
+  -- Start processing first chunk
+  process_chunk(1)
 end
 
 -- Pre-compute which passes actually changed IR
