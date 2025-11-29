@@ -60,20 +60,76 @@
 
 ## Pending Features
 
+### Pipeline Viewer - Performance Optimizations
+*(For handling 56K+ pass pipelines efficiently)*
+
+#### Quick Wins (1 hour total implementation)
+- [ ] **Add --print-before-all Flag** - Eliminate expensive before_ir reconstruction
+  - Add both `--print-changed` AND `--print-before-all` to compilation flags
+  - Trade-off: Output 1MB → 2MB (still 25x smaller than --print-before-all alone)
+  - Impact: Eliminates 100% of reconstruction → 10-20x faster compute_pass_changes
+  - Location: `pipeline.lua` lines 158, 293-294
+
+- [ ] **Pre-compile Regex Patterns** - Avoid recompiling on every line
+  - In `ir_utils.extract_function()`, compile regex once before loop
+  - Currently compiles 10K+ regexes for large modules
+  - Impact: 2-3x faster function extraction
+  - Location: `ir_utils.lua` line 85-86
+
+- [ ] **Build Module Pass Index** - O(1) module pass lookups
+  - Create index array during initial parse: `{5, 23, 107, ...}` = module pass indices
+  - Replace backward O(n) scan with O(1) index lookup
+  - Impact: 100x faster module pass lookups (scans 56K → lookup 1)
+  - Location: `pipeline_viewer.lua` line 812-825
+
+- [ ] **Early Exit on Line Count Mismatch** - Skip unnecessary line scans
+  - If `#before_ir != #after_ir`, set `lines_changed = abs(diff)` and skip loop
+  - Impact: 2x faster for passes with IR size changes
+  - Location: `pipeline_viewer.lua` line 752-755
+
+#### Medium Effort (4-8 hours total)
+- [ ] **Lazy Computation of Pass Changes** ⭐ High Priority
+  - Don't compute diff_stats for all 56K passes at startup
+  - Compute on-demand when user navigates to pass or unfolds group
+  - Show "Computing..." only for visible/accessed passes
+  - Impact: Initial load 100x faster (compute 10-50 instead of 56K)
+  - Architecture: Mark `diff_stats = nil` initially, lazy-evaluate on access
+
+- [ ] **Function Extraction Cache with LRU** - Avoid re-extraction
+  - Cache: `hash(module_ir) .. ":" .. func_name → extracted_ir`
+  - LRU eviction when cache exceeds 50MB
+  - Impact: 5-10x speedup for repeated function extractions
+  - Location: `ir_utils.lua` extract_function()
+
+- [ ] **Runtime Function/Module Filtering UI** ⭐ User's Idea
+  - Press `f` → filter by function name regex
+  - Press `m` → filter by module/pass name regex
+  - Press `c` → toggle "changed only" mode
+  - Complements existing compile-time `--filter-print-funcs` (line 70)
+  - Impact: 56K passes with 1000 funcs → filter to 10 → 5-10x speedup
+
+- [ ] **Hash-Based IR Comparison** - O(1) equality check
+  - SHA256 hash each IR array, compare hashes first
+  - Only do line-by-line scan if hashes differ (to count lines)
+  - Impact: 5-10x faster for large functions (10K+ lines)
+  - Location: `pipeline_viewer.lua` line 747-764
+
+#### Long Term (1-2 days)
+- [ ] **Streaming/Incremental Parsing Architecture** - Handle 500K+ pipelines
+  - Parse only headers/metadata initially (name, scope, changed flag)
+  - Load IR on-demand when navigating to pass
+  - Store IR in temp files/DB, not in-memory
+  - Impact: Initial load instant, memory 560MB → 5MB
+  - Major architectural change to state management
+
+---
+
 ### Pipeline Viewer - Future Enhancements
 - [ ] **Loop Pass Support** - Track loop-level optimizations
   - Parse loop scope passes (e.g., "LoopFullUnrollPass on loop %for.body in function foo")
   - Display loop hierarchy within functions
   - Show which loops were optimized
   - Highlight loop transformations (unrolling, vectorization, etc.)
-- [ ] **Capture-Time Filtering** - Filter functions during compilation
-  - Use `--filter-print-funcs=<regex>` LLVM flag
-  - Config option: `pipeline = { filter_funcs = "main|foo|bar" }`
-  - Whitelist/blacklist mode
-- [ ] **Runtime Filtering UI** - Interactive filtering while viewing
-  - Press 'f' to select specific functions
-  - Press 'c' to toggle "changed only" mode
-  - Dynamic pass list updates
 
 - [ ] DILexicalBlockScope exploration for scope-aware features
 - [ ] Complete assembly line mapping (parse `.loc` directives)
