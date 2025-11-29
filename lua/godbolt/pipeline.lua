@@ -230,10 +230,11 @@ run_opt_pipeline_async = function(input_file, passes_str, opts, callback)
       -- Parse the pipeline output
       print(string.format("[" .. get_timestamp() .. "] [Pipeline] ✓ Compilation completed in %.1fs, parsing passes...", elapsed))
       local parse_start = vim.loop.hrtime()
-      local passes, _ = M.parse_pipeline_output(output)
-      local parse_elapsed = (vim.loop.hrtime() - parse_start) / 1e9
-      print(string.format("[" .. get_timestamp() .. "] [Pipeline] ✓ Parsing completed in %.1fs (%d passes)", parse_elapsed, #passes))
-      callback(passes)
+      M.parse_pipeline_output_async(output, nil, function(passes)
+        local parse_elapsed = (vim.loop.hrtime() - parse_start) / 1e9
+        print(string.format("[" .. get_timestamp() .. "] [Pipeline] ✓ Parsing completed in %.1fs (%d passes)", parse_elapsed, #passes))
+        callback(passes)
+      end)
     end)
   end)
 end
@@ -396,19 +397,20 @@ run_clang_pipeline_async = function(input_file, passes_str, lang_args, opts, cal
       -- Parse pipeline output
       print(string.format("[" .. get_timestamp() .. "] [Pipeline] ✓ Compilation completed in %.1fs, parsing passes...", elapsed))
       local parse_start = vim.loop.hrtime()
-      local passes, initial_ir = M.parse_pipeline_output(output, "clang")
-      local parse_elapsed = (vim.loop.hrtime() - parse_start) / 1e9
-      print(string.format("[" .. get_timestamp() .. "] [Pipeline] ✓ Parsing completed in %.1fs (%d passes)", parse_elapsed, #passes))
+      M.parse_pipeline_output_async(output, "clang", function(passes, initial_ir)
+        local parse_elapsed = (vim.loop.hrtime() - parse_start) / 1e9
+        print(string.format("[" .. get_timestamp() .. "] [Pipeline] ✓ Parsing completed in %.1fs (%d passes)", parse_elapsed, #passes))
 
-      -- Cache initial IR
-      if initial_ir then
-        M._cached_initial_ir = {
-          file = input_file,
-          ir = initial_ir,
-        }
-      end
+        -- Cache initial IR
+        if initial_ir then
+          M._cached_initial_ir = {
+            file = input_file,
+            ir = initial_ir,
+          }
+        end
 
-      callback(passes)
+        callback(passes)
+      end)
     end)
   end)
 end
@@ -529,6 +531,231 @@ run_clang_pipeline = function(input_file, passes_str, lang_args, opts)
   end
 
   return passes
+end
+
+-- Parse pipeline output into pass stages - ASYNC VERSION
+-- Processes output in chunks to avoid UI freeze with large pipelines (90K+ passes)
+-- @param output: raw output from opt/clang command
+-- @param source_type: "opt" or "clang" (default "opt")
+-- @param callback: function(passes, initial_ir) called when complete
+function M.parse_pipeline_output_async(output, source_type, callback)
+  source_type = source_type or "opt"
+
+  local passes = {}
+  local initial_ir = nil
+  local initial_scope_type = nil
+  local current_pass = nil
+  local current_scope_type = nil
+  local current_scope_target = nil
+  local current_ir = {}
+  local current_is_before = false
+  local current_before_ir = nil
+  local pass_boundary_count = 0
+  local seen_module_id = false
+
+  -- Track last IR for each scope (for --print-changed optimization)
+  local last_module_ir = nil
+  local last_ir_by_function = {}
+  local last_ir_by_cgscc = {}
+
+  -- Split output into lines ONCE (not in chunks to avoid complexity)
+  local lines = {}
+  for line in output:gmatch("[^\r\n]+") do
+    table.insert(lines, line)
+  end
+
+  local total_lines = #lines
+  local chunk_size = 500  -- Smaller chunks = smoother UI (yield more frequently)
+  local start_time = vim.loop.hrtime()
+  local last_print_time = start_time
+
+  print(string.format("[" .. get_timestamp() .. "] [Pipeline] [Parse] Processing %d lines in chunks of %d", total_lines, chunk_size))
+
+  local function process_chunk(chunk_start)
+    if chunk_start > total_lines then
+      -- Finished all lines, now clean IR in final pass
+      print(string.format("[" .. get_timestamp() .. "] [Pipeline] [Parse] Line processing complete, cleaning IR for %d passes", #passes))
+
+      -- Clean all IR at once (do heavy work in one batch at the end)
+      local clean_start = vim.loop.hrtime()
+      for _, pass in ipairs(passes) do
+        if pass.ir and not pass.cleaned then
+          pass.ir = ir_utils.clean_ir(pass.ir, pass.scope_type)
+          pass.cleaned = true
+        end
+        if pass.before_ir and not pass.before_cleaned then
+          pass.before_ir = ir_utils.clean_ir(pass.before_ir, pass.scope_type)
+          pass.before_cleaned = true
+        end
+      end
+
+      if initial_ir then
+        initial_ir = ir_utils.clean_ir(initial_ir, initial_scope_type)
+      end
+
+      local clean_elapsed = (vim.loop.hrtime() - clean_start) / 1e9
+      local total_elapsed = (vim.loop.hrtime() - start_time) / 1e9
+      print(string.format("[" .. get_timestamp() .. "] [Pipeline] [Parse] [%.3fs] IR cleaning took %.3fs", total_elapsed, clean_elapsed))
+      print(string.format("[" .. get_timestamp() .. "] [Pipeline] [Parse] [%.3fs] Completed (%d passes)", total_elapsed, #passes))
+      callback(passes, initial_ir)
+      return
+    end
+
+    local chunk_end = math.min(chunk_start + chunk_size - 1, total_lines)
+
+    -- Show progress every 2 seconds
+    local current_time = vim.loop.hrtime()
+    local elapsed_since_print = (current_time - last_print_time) / 1e9
+    if chunk_start > 1 and elapsed_since_print >= 2.0 then
+      local total_elapsed = (current_time - start_time) / 1e9
+      local percent = math.floor((chunk_end / total_lines) * 100)
+      print(string.format("[" .. get_timestamp() .. "] [Pipeline] [Parse] [%.3fs] Processing... (%d%%)", total_elapsed, percent))
+      last_print_time = current_time
+      vim.cmd('redraw')
+    end
+
+    -- Process this chunk synchronously
+    for line_idx = chunk_start, chunk_end do
+      local line = lines[line_idx]
+
+      local pass_name, scope_type, scope_target, is_before, is_omitted = parse_pass_header(line)
+
+      if pass_name then
+        pass_boundary_count = pass_boundary_count + 1
+
+        -- Save previous pass/before dump if exists
+        if current_pass and #current_ir > 0 then
+          if current_is_before then
+            -- Store raw IR, clean later
+            current_before_ir = current_ir
+            if not initial_ir and current_scope_type == "module" then
+              initial_ir = current_ir
+              initial_scope_type = current_scope_type
+            end
+          else
+            if is_llvm_ir(current_ir) or #current_ir == 0 then
+              -- Store raw IR, clean later
+              table.insert(passes, {
+                name = current_pass,
+                scope_type = current_scope_type,
+                scope_target = current_scope_target,
+                ir = current_ir,  -- Raw, not cleaned
+                before_ir = current_before_ir,
+                cleaned = false,
+              })
+
+              -- Update last IR tracking
+              if current_scope_type == "module" then
+                last_module_ir = current_ir
+              elseif current_scope_type == "function" and current_scope_target then
+                last_ir_by_function[current_scope_target] = current_ir
+              elseif current_scope_type == "cgscc" and current_scope_target then
+                last_ir_by_cgscc[current_scope_target] = current_ir
+              end
+
+              current_before_ir = nil
+            else
+              current_before_ir = nil
+            end
+          end
+        end
+
+        -- Handle omitted passes
+        if is_omitted then
+          if scope_target then
+            current_pass = pass_name .. " on " .. (scope_type == "module" and scope_target or
+                                                    scope_type == "cgscc" and "(" .. scope_target .. ")" or
+                                                    scope_target)
+          else
+            current_pass = pass_name
+          end
+
+          local copied_ir = nil
+          if scope_type == "module" then
+            copied_ir = last_module_ir or initial_ir
+          elseif scope_type == "function" and scope_target then
+            copied_ir = last_ir_by_function[scope_target]
+            if not copied_ir and last_module_ir then
+              copied_ir = ir_utils.extract_function(last_module_ir, scope_target)
+              if copied_ir and #copied_ir > 0 then
+                last_ir_by_function[scope_target] = copied_ir
+              end
+            end
+          elseif scope_type == "cgscc" and scope_target then
+            copied_ir = last_ir_by_cgscc[scope_target]
+            if not copied_ir and last_module_ir then
+              copied_ir = ir_utils.extract_function(last_module_ir, scope_target)
+              if copied_ir and #copied_ir > 0 then
+                last_ir_by_cgscc[scope_target] = copied_ir
+              end
+            end
+          end
+
+          if copied_ir then
+            table.insert(passes, {
+              name = current_pass,
+              scope_type = scope_type,
+              scope_target = scope_target,
+              ir = copied_ir,
+              changed = false,
+            })
+          end
+
+          current_pass = nil
+          current_scope_type = nil
+          current_scope_target = nil
+          current_ir = {}
+          current_is_before = false
+          seen_module_id = false
+        else
+          -- Start new pass
+          if scope_target then
+            current_pass = pass_name .. " on " .. (scope_type == "module" and scope_target or
+                                                    scope_type == "cgscc" and "(" .. scope_target .. ")" or
+                                                    scope_target)
+          else
+            current_pass = pass_name
+          end
+          current_scope_type = scope_type
+          current_scope_target = scope_target
+          current_is_before = is_before
+          current_ir = {}
+          seen_module_id = false
+        end
+
+      elseif current_pass then
+        if source_type == "opt" and line:match("^; ModuleID = ") and #current_ir > 20 then
+          -- Final output marker for opt
+          if current_pass and #current_ir > 0 then
+            if is_llvm_ir(current_ir) or #current_ir == 0 then
+              table.insert(passes, {
+                name = current_pass,
+                scope_type = current_scope_type,
+                scope_target = current_scope_target,
+                ir = current_ir,  -- Raw, will be cleaned in finalization
+                cleaned = false,
+              })
+            end
+          end
+          -- Early exit - skip to cleaning phase
+          chunk_start = total_lines + 1
+          vim.schedule(function()
+            process_chunk(chunk_start)
+          end)
+          return
+        else
+          table.insert(current_ir, line)
+        end
+      end
+    end
+
+    -- Schedule next chunk
+    vim.schedule(function()
+      process_chunk(chunk_start + chunk_size)
+    end)
+  end
+
+  process_chunk(1)
 end
 
 -- Parse pipeline output into pass stages
