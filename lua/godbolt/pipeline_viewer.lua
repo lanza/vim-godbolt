@@ -46,7 +46,8 @@ function M.setup(source_bufnr, input_file, passes, config)
   if config.filter_unchanged then
     local pipeline = require('godbolt.pipeline')
     passes = pipeline.filter_changed_passes(passes)
-    print(string.format("[Pipeline] Filtered to %d passes that changed IR", #passes))
+    local t = (vim.loop.hrtime() - setup_start) / 1e9
+    print(string.format("[Pipeline] [%.3fs] Filtered to %d passes that changed IR", t, #passes))
   end
 
   local t = (vim.loop.hrtime() - setup_start) / 1e9
@@ -746,8 +747,8 @@ function M.compute_stats_async(callback)
     local elapsed_since_print = (current_time - last_print_time) / 1e9
     if chunk_start > 1 and elapsed_since_print >= 2.0 then
       local total_elapsed = (current_time - start_time) / 1e9
-      print(string.format("[Pipeline] Computing statistics... (%d/%d passes, %ds elapsed)",
-        chunk_end, total_passes, math.floor(total_elapsed)))
+      print(string.format("[Pipeline] [%.3fs] Computing statistics... (%d/%d passes)",
+        total_elapsed, chunk_end, total_passes))
       last_print_time = current_time
       vim.cmd('redraw')  -- Force UI update
     end
@@ -793,7 +794,8 @@ function M.compute_pass_changes(callback)
     local elapsed_since_print = (current_time - last_print_time) / 1e9
     if chunk_start > 1 and elapsed_since_print >= 2.0 then
       local total_elapsed = (current_time - start_time) / 1e9
-      print(string.format("[Pipeline] Computing... (%d/%d passes, %ds elapsed)", chunk_end, total_passes, math.floor(total_elapsed)))
+      print(string.format("[Pipeline] [%.3fs] Computing pass changes... (%d/%d passes)",
+        total_elapsed, chunk_end, total_passes))
       last_print_time = current_time
       vim.cmd('redraw')  -- Force UI update
     end
