@@ -39,6 +39,14 @@ M.config = {
     show_stats = false,            -- Disable stats logging by default (prints to messages, causes line wrapping)
     start_at_final = true,
     filter_unchanged = false,
+
+    -- Optimization remarks configuration
+    remarks = {
+      pass = true,
+      missed = true,
+      analysis = true,
+      filter = "inline",
+    },
   },
 
   -- LTO (Link-Time Optimization) configuration
@@ -55,6 +63,24 @@ M.config = {
 -- Setup function to override defaults
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
+
+  -- Normalize remarks config: true → {pass=true, missed=true, analysis=true, filter="inline"}
+  if M.config.pipeline and M.config.pipeline.remarks then
+    local remarks = M.config.pipeline.remarks
+    if remarks == true then
+      M.config.pipeline.remarks = {
+        pass = true,
+        missed = true,
+        analysis = true,
+        filter = "inline",
+      }
+    elseif type(remarks) == "table" then
+      -- Set defaults for missing fields
+      if remarks.filter == nil then
+        remarks.filter = "inline"
+      end
+    end
+  end
 end
 
 -- Detect output type from compiler arguments
@@ -544,6 +570,7 @@ function M.godbolt_pipeline(args_str)
     compiler = cc_compiler,
     flags = cc_flags,
     working_dir = compile_directory,
+    remarks = M.config.pipeline.remarks,  -- Pass remarks config
   }
 
   pipeline.run_pipeline(file, passes_to_run, pipeline_opts, function(passes)

@@ -145,6 +145,16 @@ require('godbolt').setup({
     show_stats = true,      -- Show instruction and basic block statistics
     start_at_final = false, -- Start at first pass instead of final result
     filter_unchanged = false, -- Filter out passes that don't change the IR
+
+    -- Optimization remarks configuration (OFF by default)
+    remarks = false,  -- Set to true to enable all categories
+    -- OR granular control:
+    -- remarks = {
+    --   pass = true,        -- ✓ Show successful optimizations
+    --   missed = true,      -- ✗ Show missed opportunities
+    --   analysis = false,   -- ℹ Show detailed analysis (verbose)
+    --   filter = "inline",  -- Regex filter for which passes (default: "inline")
+    -- },
   },
 })
 ```
@@ -259,6 +269,67 @@ In the before/after panes:
   - Changed passes/functions are highlighted in color
   - Unchanged passes/functions are grayed out
 - **All Groups Start Folded**: Even groups with 1000+ functions start folded for usability
+
+### Optimization Remarks (Optional)
+
+LLVM optimization remarks provide detailed information about optimization decisions made by the compiler. This is useful for understanding why certain optimizations were or weren't applied.
+
+**Enable remarks in your configuration:**
+
+```lua
+require('godbolt').setup({
+  pipeline = {
+    -- Simple syntax - enables all remark categories
+    remarks = true,  -- Captures pass, missed, and analysis remarks for "inline" passes
+
+    -- Granular control
+    -- remarks = {
+    --   pass = true,        -- ✓ What was optimized
+    --   missed = true,      -- ✗ What wasn't optimized
+    --   analysis = false,   -- ℹ Detailed analysis (verbose)
+    --   filter = ".*",      -- All passes (can be overwhelming)
+    -- },
+  },
+})
+```
+
+**Usage:**
+
+1. Run pipeline with remarks enabled:
+   ```vim
+   :GodboltPipeline O2
+   ```
+
+2. Navigate to any pass and press `R` or `gr` to show remarks popup
+
+3. Remarks are displayed with icons:
+   - `✓` - Successful optimizations (pass)
+   - `✗` - Missed opportunities (missed)
+   - `ℹ` - Analysis information (analysis)
+
+**Example output:**
+
+```
+Optimization Remarks for InlinerPass on main
+================================================================================
+
+[1] ✓ /tmp/test.c:5:18
+    'add' inlined into 'compute' with (cost=-35, threshold=337) at callsite compute:1:18
+
+[2] ✓ /tmp/test.c:6:20
+    'sub' inlined into 'compute' with (cost=-35, threshold=337)
+
+[3] ✗ /tmp/test.c:12:15
+    'helper' not inlined into 'main' (cost=150, threshold=225) because too large
+
+Total: 3 remarks (2 pass, 1 missed, 0 analysis)
+```
+
+**Tips:**
+- Start with `filter = "inline"` to see inlining decisions (most useful)
+- Use `missed = true` to find performance optimization opportunities
+- `analysis = true` is very verbose - use for debugging specific issues only
+- Press `q`, `<Esc>`, or `<CR>` to close the remarks popup
 
 ### Link-Time Optimization (LTO)
 

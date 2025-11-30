@@ -1280,6 +1280,81 @@ end
 -- IMPORTANT: indices are ORIGINAL indices in M.state.passes, NOT display_index!
 -- @param old_index: previous current_index (to remove old markers)
 -- @param new_index: new current_index (to add new markers)
+-- Show optimization remarks popup for current pass
+function M.show_remarks_popup()
+  if not M.state.current_index or not M.state.passes then
+    vim.notify("No pass selected", vim.log.levels.INFO)
+    return
+  end
+
+  local pass = M.state.passes[M.state.current_index]
+  if not pass.remarks or #pass.remarks == 0 then
+    vim.notify("No remarks for this pass", vim.log.levels.INFO)
+    return
+  end
+
+  -- Format remarks as lines
+  local lines = {}
+  table.insert(lines, string.format("Optimization Remarks for %s", pass.name))
+  table.insert(lines, string.rep("=", 80))
+  table.insert(lines, "")
+
+  for i, remark in ipairs(pass.remarks) do
+    -- Icon based on category
+    local icon = remark.category == "pass" and "✓" or
+                 remark.category == "missed" and "✗" or "ℹ"
+
+    -- Location string
+    local loc = remark.location
+    local loc_str = loc and string.format("%s:%d:%d", loc.file, loc.line, loc.column) or "unknown"
+
+    table.insert(lines, string.format("[%d] %s %s", i, icon, loc_str))
+    table.insert(lines, "    " .. remark.message)
+    table.insert(lines, "")
+  end
+
+  table.insert(lines, "")
+  table.insert(lines, string.format("Total: %d remarks (%d pass, %d missed, %d analysis)",
+    #pass.remarks,
+    vim.tbl_filter(function(r) return r.category == "pass" end, pass.remarks) and
+      #vim.tbl_filter(function(r) return r.category == "pass" end, pass.remarks) or 0,
+    vim.tbl_filter(function(r) return r.category == "missed" end, pass.remarks) and
+      #vim.tbl_filter(function(r) return r.category == "missed" end, pass.remarks) or 0,
+    vim.tbl_filter(function(r) return r.category == "analysis" end, pass.remarks) and
+      #vim.tbl_filter(function(r) return r.category == "analysis" end, pass.remarks) or 0
+  ))
+
+  -- Create floating window
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.api.nvim_buf_set_option(buf, 'modifiable', false)
+  vim.api.nvim_buf_set_option(buf, 'bufhidden', 'wipe')
+
+  local width = math.min(100, vim.o.columns - 4)
+  local height = math.min(#lines + 2, vim.o.lines - 4)
+
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = "editor",
+    width = width,
+    height = height,
+    col = math.floor((vim.o.columns - width) / 2),
+    row = math.floor((vim.o.lines - height) / 2),
+    style = "minimal",
+    border = "rounded",
+    title = " Optimization Remarks ",
+    title_pos = "center",
+  })
+
+  -- Set filetype for potential syntax highlighting
+  vim.api.nvim_buf_set_option(buf, 'filetype', 'godbolt-remarks')
+
+  -- Keymaps to close
+  local opts = { noremap = true, silent = true, buffer = buf }
+  vim.keymap.set('n', 'q', '<cmd>close<CR>', opts)
+  vim.keymap.set('n', '<Esc>', '<cmd>close<CR>', opts)
+  vim.keymap.set('n', '<CR>', '<cmd>close<CR>', opts)
+end
+
 function M.update_pass_list_cursor(old_index, new_index)
   -- Update selection highlighting (uses separate namespace, very fast)
   M.update_selection_highlighting()
@@ -1859,6 +1934,17 @@ function M.setup_keymaps()
   vim.keymap.set('n', 'g]', function() M.last_pass() end, {
     buffer = bufnr,
     desc = 'Last pass'
+  })
+
+  -- Show optimization remarks popup
+  vim.keymap.set('n', 'R', function() M.show_remarks_popup() end, {
+    buffer = bufnr,
+    desc = 'Show optimization remarks'
+  })
+
+  vim.keymap.set('n', 'gr', function() M.show_remarks_popup() end, {
+    buffer = bufnr,
+    desc = 'Show optimization remarks'
   })
 
   -- Also add commands that work from any window

@@ -48,6 +48,47 @@ local function has_lto_flags(args)
   return args:match("-flto") or args:match("-flink%-time%-optimization")
 end
 
+-- Helper: Parse optimization remark line
+-- @param line: stderr line from compiler
+-- @return: remark_table or nil
+--   remark_table: {category, message, location={file, line, column}}
+--   category: "pass" | "missed" | "analysis"
+local function parse_remark_line(line)
+  -- Pattern: "file:line:col: remark: message [-Rpass-category]"
+  -- Example: "/tmp/test.c:5:18: remark: 'add' inlined into 'compute' [-Rpass=inline]"
+  local file, line_num, col, msg_and_tag = line:match("^(.+):(%d+):(%d+): remark: (.+)$")
+
+  if not file then
+    return nil
+  end
+
+  -- Extract category from tag at end: [-Rpass=...], [-Rpass-missed=...], [-Rpass-analysis=...]
+  local category = "pass"  -- default
+  local message = msg_and_tag
+
+  if msg_and_tag:match("%[%-Rpass%-missed") then
+    category = "missed"
+    -- Remove tag from message
+    message = msg_and_tag:match("(.-)%s*%[%-Rpass%-missed")  or msg_and_tag
+  elseif msg_and_tag:match("%[%-Rpass%-analysis") then
+    category = "analysis"
+    message = msg_and_tag:match("(.-)%s*%[%-Rpass%-analysis") or msg_and_tag
+  elseif msg_and_tag:match("%[%-Rpass") then
+    category = "pass"
+    message = msg_and_tag:match("(.-)%s*%[%-Rpass") or msg_and_tag
+  end
+
+  return {
+    category = category,
+    message = message,
+    location = {
+      file = file,
+      line = tonumber(line_num),
+      column = tonumber(col),
+    },
+  }
+end
+
 -- Helper: Parse pass header to extract scope information
 -- @param pass_line: line containing pass boundary marker
 -- @return: pass_name, scope_type, scope_target, is_before, is_omitted
@@ -159,11 +200,34 @@ end
 
 -- Run opt pipeline (LLVM IR files) - ASYNC VERSION
 run_opt_pipeline_async = function(input_file, passes_str, opts, callback)
-  local cmd = string.format(
-    'opt --strip-debug -passes="%s" --print-changed -S "%s" 2>&1',
-    passes_str,
-    input_file
-  )
+  opts = opts or {}
+
+  -- Build command parts
+  local cmd_parts = {
+    "opt",
+    "--strip-debug",
+    "-passes=" .. passes_str,
+    "--print-changed",
+  }
+
+  -- Add optimization remarks flags if enabled
+  if opts.remarks then
+    local remarks = opts.remarks
+    if remarks.pass then
+      table.insert(cmd_parts, "-Rpass=" .. remarks.filter)
+    end
+    if remarks.missed then
+      table.insert(cmd_parts, "-Rpass-missed=" .. remarks.filter)
+    end
+    if remarks.analysis then
+      table.insert(cmd_parts, "-Rpass-analysis=" .. remarks.filter)
+    end
+  end
+
+  table.insert(cmd_parts, "-S")
+  table.insert(cmd_parts, input_file)
+
+  local cmd = table.concat(cmd_parts, " ") .. " 2>&1"
 
   -- Always print exact command for debugging
   vim.notify("[" .. get_timestamp() .. "] [Pipeline] Running command:")
@@ -305,6 +369,20 @@ run_clang_pipeline_async = function(input_file, passes_str, lang_args, opts, cal
     "-fno-discard-value-names",
     "-fstandalone-debug",
   }
+
+  -- Add optimization remarks flags if enabled
+  if opts.remarks then
+    local remarks = opts.remarks
+    if remarks.pass then
+      table.insert(cmd_parts, "-Rpass=" .. remarks.filter)
+    end
+    if remarks.missed then
+      table.insert(cmd_parts, "-Rpass-missed=" .. remarks.filter)
+    end
+    if remarks.analysis then
+      table.insert(cmd_parts, "-Rpass-analysis=" .. remarks.filter)
+    end
+  end
 
   -- Add language args
   if lang_args then
@@ -550,6 +628,7 @@ function M.parse_pipeline_output_async(output, source_type, callback)
   local current_ir = {}
   local current_is_before = false
   local current_before_ir = nil
+  local current_remarks = {}  -- Track remarks for current pass
   local pass_boundary_count = 0
   local seen_module_id = false
 
@@ -618,6 +697,13 @@ function M.parse_pipeline_output_async(output, source_type, callback)
     for line_idx = chunk_start, chunk_end do
       local line = lines[line_idx]
 
+      -- Try to parse as remark first
+      local remark = parse_remark_line(line)
+      if remark then
+        table.insert(current_remarks, remark)
+        goto continue  -- Skip further processing for this line
+      end
+
       local pass_name, scope_type, scope_target, is_before, is_omitted = parse_pass_header(line)
 
       if pass_name then
@@ -641,6 +727,7 @@ function M.parse_pipeline_output_async(output, source_type, callback)
                 scope_target = current_scope_target,
                 ir = current_ir,  -- Raw, not cleaned
                 before_ir = current_before_ir,
+                remarks = current_remarks,  -- Attach remarks
                 cleaned = false,
               })
 
@@ -659,6 +746,9 @@ function M.parse_pipeline_output_async(output, source_type, callback)
             end
           end
         end
+
+        -- Reset remarks for new pass
+        current_remarks = {}
 
         -- Handle omitted passes
         if is_omitted then
@@ -697,6 +787,7 @@ function M.parse_pipeline_output_async(output, source_type, callback)
               scope_type = scope_type,
               scope_target = scope_target,
               ir = copied_ir,
+              remarks = current_remarks,  -- Attach remarks
               changed = false,
             })
           end
@@ -707,6 +798,7 @@ function M.parse_pipeline_output_async(output, source_type, callback)
           current_ir = {}
           current_is_before = false
           seen_module_id = false
+          current_remarks = {}  -- Reset remarks
         else
           -- Start new pass
           if scope_target then
@@ -747,6 +839,8 @@ function M.parse_pipeline_output_async(output, source_type, callback)
           table.insert(current_ir, line)
         end
       end
+
+      ::continue::  -- Label for remark skip
     end
 
     -- Schedule next chunk
