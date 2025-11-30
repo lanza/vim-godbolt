@@ -966,7 +966,13 @@ function M.parse_pipeline_output(output, source_type)
         break
       else
         -- We're inside a pass dump - collect all lines
-        table.insert(current_ir, line)
+        -- Skip "ignored" and PassManager messages from LLVM output
+        if not line:match("^%*%*%* IR Pass .* ignored %*%*%*$") and
+           not line:match("^; %*%*%* IR Pass .* ignored %*%*%*$") and
+           not line:match("^%*%*%* IR Pass PassManager") and
+           not line:match("^; %*%*%* IR Pass PassManager") then
+          table.insert(current_ir, line)
+        end
       end
     end
   end
