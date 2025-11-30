@@ -25,18 +25,11 @@ M.state = {
   after_winid = nil,
   config = nil,
   ns_id = vim.api.nvim_create_namespace('godbolt_pipeline'),
+  ns_selection = vim.api.nvim_create_namespace('godbolt_pipeline_selection'),  -- Separate namespace for selection highlighting
   grouped_passes = nil,  -- Grouped/folded pass structure
   module_pass_indices = nil,  -- OPTIMIZATION: Index of module pass positions {5, 23, 107, ...}
-
-  -- Virtual scrolling state
-  virtual_scroll = {
-    enabled = false,  -- Enable for large pass lists (>1000 lines)
-    all_lines = nil,  -- Full computed line list (metadata only, not rendered)
-    line_map = nil,   -- Map from display_line_num -> {type, group_idx, fn_idx, original_index}
-    scroll_offset = 0,  -- Top visible line (0-indexed)
-    visible_lines = 50,  -- Number of lines to render (dynamically calculated from window height)
-    total_lines = 0,  -- Total number of logical lines
-  },
+  on_group_header = false,  -- Track if we're on a group header (don't show function marker)
+  num_width = nil,  -- Width of pass numbers (computed once from #groups)
 }
 
 -- Setup pipeline viewer with 3-pane layout
@@ -396,24 +389,8 @@ function M.populate_pass_list()
   end
 
   local groups = M.state.grouped_passes
-
-  -- Determine if we should use virtual scrolling
-  -- Enable for >1000 visible lines to keep UI responsive
-  local estimated_lines = #groups * 3  -- Rough estimate
-  local use_virtual_scroll = estimated_lines > 1000
-
-  if use_virtual_scroll then
-    M.populate_pass_list_virtual()
-  else
-    M.populate_pass_list_full()
-  end
-end
-
--- Original full rendering (for small pass lists)
-function M.populate_pass_list_full()
   local lines = {}
   local line_map = {}  -- Map line number -> {type, group_idx, fn_idx, original_index}
-  local groups = M.state.grouped_passes
   local header = string.format("Optimization Pipeline (%d passes, %d groups)", #M.state.passes, #groups)
   table.insert(lines, header)
   line_map[#lines] = {type = "header"}
@@ -424,8 +401,9 @@ function M.populate_pass_list_full()
   table.insert(lines, "")
   line_map[#lines] = {type = "blank"}
 
-  -- Calculate number width based on total groups
-  local num_width = #tostring(#groups)
+  -- Calculate number width based on total groups (store for reuse)
+  M.state.num_width = #tostring(#groups)
+  local num_width = M.state.num_width
 
   for group_idx, group in ipairs(groups) do
     if group.type == "module" then
@@ -496,7 +474,7 @@ function M.populate_pass_list_full()
       -- If unfolded, show function list
       if not group.folded then
         for fn_idx, fn in ipairs(group.functions) do
-          local fn_marker = (fn.original_index == M.state.current_index) and "●" or " "
+          local fn_marker = (fn.original_index == M.state.current_index and not M.state.on_group_header) and "●" or " "
           -- Indent based on num_width: marker(1) + num_width + ". "(2) = total indent
           local indent = string.rep(" ", 1 + num_width + 2)
           local fn_line = string.format("%s%s   %s", indent, fn_marker, fn.target)
@@ -527,9 +505,11 @@ function M.populate_pass_list_full()
               end
               if #stats_parts > 0 then
                 table.insert(lines, "       D: " .. table.concat(stats_parts, ", "))
+                line_map[#lines] = {type = "function_stats", group_idx = group_idx, fn_idx = fn_idx, original_index = fn.original_index}
               end
             elseif pass.changed and pass.diff_stats and pass.diff_stats.lines_changed > 0 then
               table.insert(lines, string.format("       D: Δ%d lines", pass.diff_stats.lines_changed))
+              line_map[#lines] = {type = "function_stats", group_idx = group_idx, fn_idx = fn_idx, original_index = fn.original_index}
             end
           end
         end
@@ -553,283 +533,9 @@ function M.populate_pass_list_full()
 
   -- Apply syntax highlighting
   M.apply_pass_list_highlights()
-end
 
--- Virtual scrolling version (for large pass lists >1000 lines)
-function M.populate_pass_list_virtual()
-  local groups = M.state.grouped_passes
-
-  -- Build line metadata (lightweight, no actual string formatting)
-  local line_metadata = {}
-  local line_map = {}
-
-  local header = string.format("Optimization Pipeline (%d passes, %d groups)", #M.state.passes, #groups)
-  table.insert(line_metadata, {type = "header", text = header})
-  table.insert(line_metadata, {type = "separator", text = string.rep("-", #header)})
-  table.insert(line_metadata, {type = "blank", text = ""})
-
-  local num_width = #tostring(#groups)
-
-  for group_idx, group in ipairs(groups) do
-    if group.type == "module" then
-      local pass = group.pass
-      table.insert(line_metadata, {
-        type = "module",
-        group_idx = group_idx,
-        original_index = group.original_index,
-        num_width = num_width,
-        display_index = group.display_index,
-      })
-      line_map[#line_metadata] = {type = "module", group_idx = group_idx, original_index = group.original_index}
-
-      -- Stats line
-      if M.state.config.show_stats and group.original_index > 1 then
-        table.insert(line_metadata, {
-          type = "module_stats",
-          group_idx = group_idx,
-          original_index = group.original_index,
-        })
-      end
-    else
-      -- Function/CGSCC group header
-      table.insert(line_metadata, {
-        type = "group_header",
-        group_idx = group_idx,
-        num_width = num_width,
-        display_index = group.display_index,
-      })
-      line_map[#line_metadata] = {type = "group_header", group_idx = group_idx}
-
-      -- Function entries (only if unfolded)
-      if not group.folded then
-        for fn_idx, fn in ipairs(group.functions) do
-          table.insert(line_metadata, {
-            type = "function_entry",
-            group_idx = group_idx,
-            fn_idx = fn_idx,
-            original_index = fn.original_index,
-            num_width = num_width,
-          })
-          line_map[#line_metadata] = {type = "function_entry", group_idx = group_idx, fn_idx = fn_idx, original_index = fn.original_index}
-
-          -- Stats line
-          if M.state.config.show_stats and fn.original_index > 1 then
-            table.insert(line_metadata, {
-              type = "function_stats",
-              group_idx = group_idx,
-              fn_idx = fn_idx,
-              original_index = fn.original_index,
-            })
-          end
-        end
-      end
-    end
-  end
-
-  table.insert(line_metadata, {type = "blank", text = ""})
-  table.insert(line_metadata, {type = "footer", text = "Legend: [M]=Module [F]=Function [C]=CGSCC"})
-  table.insert(line_metadata, {type = "footer", text = "Keys: j/k=nav, Tab/S-Tab=changed-only, Enter/o=fold, q=quit"})
-
-  -- Store metadata
-  M.state.virtual_scroll.enabled = true
-  M.state.virtual_scroll.all_lines = line_metadata
-  M.state.virtual_scroll.line_map = line_map
-  M.state.virtual_scroll.total_lines = #line_metadata
-
-  -- Calculate visible lines from window height
-  if M.state.pass_list_winid and vim.api.nvim_win_is_valid(M.state.pass_list_winid) then
-    local win_height = vim.api.nvim_win_get_height(M.state.pass_list_winid)
-    M.state.virtual_scroll.visible_lines = win_height + 10  -- Extra buffer for smooth scrolling
-  end
-
-  -- Render initial viewport
-  M.render_virtual_viewport()
-
-  -- Set up autocmd for cursor movement to update viewport and store its ID
-  M.state.cursor_moved_autocmd = vim.api.nvim_create_autocmd({"CursorMoved", "CursorMovedI"}, {
-    buffer = M.state.pass_list_bufnr,
-    callback = function()
-      M.update_virtual_viewport()
-    end,
-  })
-end
-
--- Render the visible portion of the virtual scrolled pass list
-function M.render_virtual_viewport()
-  if not M.state.virtual_scroll.enabled then
-    return
-  end
-
-  local vs = M.state.virtual_scroll
-  local line_metadata = vs.all_lines
-  local groups = M.state.grouped_passes
-
-  -- Get cursor position to determine what to render
-  local cursor_line = 1
-  if M.state.pass_list_winid and vim.api.nvim_win_is_valid(M.state.pass_list_winid) then
-    cursor_line = vim.api.nvim_win_get_cursor(M.state.pass_list_winid)[1]
-  end
-
-  -- Calculate viewport window
-  local viewport_start = math.max(1, cursor_line - math.floor(vs.visible_lines / 2))
-  local viewport_end = math.min(vs.total_lines, viewport_start + vs.visible_lines - 1)
-
-  -- Adjust start if we're at the end
-  if viewport_end == vs.total_lines then
-    viewport_start = math.max(1, viewport_end - vs.visible_lines + 1)
-  end
-
-  -- Generate lines for visible viewport
-  local lines = {}
-  for i = viewport_start, viewport_end do
-    local meta = line_metadata[i]
-    local line_text = M.format_line_from_metadata(meta, groups)
-    table.insert(lines, line_text)
-  end
-
-  -- Render to buffer
-  vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', true)
-  vim.api.nvim_buf_set_lines(M.state.pass_list_bufnr, 0, -1, false, lines)
-  vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', false)
-
-  -- Store viewport offset for mapping
-  vs.scroll_offset = viewport_start - 1
-
-  -- Apply highlighting
-  M.apply_pass_list_highlights()
-end
-
--- Update viewport on cursor movement
-function M.update_virtual_viewport()
-  if not M.state.virtual_scroll.enabled then
-    return
-  end
-
-  local cursor_line = vim.api.nvim_win_get_cursor(M.state.pass_list_winid)[1]
-  local vs = M.state.virtual_scroll
-
-  -- Check if cursor is near viewport edges
-  local buffer_lines = vim.api.nvim_buf_line_count(M.state.pass_list_bufnr)
-  local needs_update = false
-
-  -- If cursor is within 5 lines of top or bottom, re-render
-  if cursor_line <= 5 or cursor_line >= buffer_lines - 5 then
-    needs_update = true
-  end
-
-  if needs_update then
-    M.render_virtual_viewport()
-  else
-  end
-end
-
--- Format a single line from metadata
-function M.format_line_from_metadata(meta, groups)
-  if meta.type == "header" or meta.type == "separator" or meta.type == "blank" or meta.type == "footer" then
-    return meta.text
-  end
-
-  local num_width = meta.num_width or 2
-
-  if meta.type == "module" then
-    local group = groups[meta.group_idx]
-    local pass = group.pass
-    local i = meta.original_index
-    local marker = (i == M.state.current_index) and ">" or " "
-    return string.format("%s%"..num_width.."d. [M] %s", marker, meta.display_index, pass.name)
-
-  elseif meta.type == "module_stats" then
-    local group = groups[meta.group_idx]
-    local pass = group.pass
-    local i = meta.original_index
-
-    local prev_stats = nil
-    for j = i - 1, 1, -1 do
-      if M.state.passes[j].scope_type == "module" then
-        prev_stats = M.state.passes[j].stats
-        break
-      end
-    end
-
-    if prev_stats then
-      local delta = stats.delta(prev_stats, pass.stats)
-      local stats_parts = {}
-      if delta.instructions ~= 0 then
-        table.insert(stats_parts, string.format("Insts %+d", delta.instructions))
-      end
-      if delta.basic_blocks ~= 0 then
-        table.insert(stats_parts, string.format("BBs %+d", delta.basic_blocks))
-      end
-      if pass.changed and pass.diff_stats and pass.diff_stats.lines_changed > 0 then
-        table.insert(stats_parts, string.format("Δ%d lines", pass.diff_stats.lines_changed))
-      end
-      if #stats_parts > 0 then
-        return "     D: " .. table.concat(stats_parts, ", ")
-      end
-    elseif pass.changed and pass.diff_stats and pass.diff_stats.lines_changed > 0 then
-      return string.format("     D: Δ%d lines", pass.diff_stats.lines_changed)
-    end
-    return ""
-
-  elseif meta.type == "group_header" then
-    local group = groups[meta.group_idx]
-    local fold_icon = group.folded and "▸" or "▾"
-    local scope_icon = group.scope_type == "cgscc" and "C" or "F"
-    local func_count = #group.functions
-
-    local any_selected = false
-    for _, fn in ipairs(group.functions) do
-      if fn.original_index == M.state.current_index then
-        any_selected = true
-        break
-      end
-    end
-    local marker = any_selected and ">" or " "
-
-    return string.format("%s%"..num_width.."d. %s [%s] %s (%d %s)",
-      marker, meta.display_index, fold_icon, scope_icon, group.pass_name, func_count,
-      func_count == 1 and "function" or "functions")
-
-  elseif meta.type == "function_entry" then
-    local group = groups[meta.group_idx]
-    local fn = group.functions[meta.fn_idx]
-    local fn_marker = (fn.original_index == M.state.current_index) and "●" or " "
-    local indent = string.rep(" ", 1 + num_width + 2)
-    return string.format("%s%s   %s", indent, fn_marker, fn.target)
-
-  elseif meta.type == "function_stats" then
-    local group = groups[meta.group_idx]
-    local fn = group.functions[meta.fn_idx]
-    local pass = fn.pass
-    local prev_pass = M.state.passes[fn.original_index - 1]
-    local prev_stats = nil
-
-    if prev_pass.scope_type ~= "module" and prev_pass.scope_target == pass.scope_target then
-      prev_stats = prev_pass.stats
-    end
-
-    if prev_stats then
-      local delta = stats.delta(prev_stats, pass.stats)
-      local stats_parts = {}
-      if delta.instructions ~= 0 then
-        table.insert(stats_parts, string.format("Insts %+d", delta.instructions))
-      end
-      if delta.basic_blocks ~= 0 then
-        table.insert(stats_parts, string.format("BBs %+d", delta.basic_blocks))
-      end
-      if pass.changed and pass.diff_stats and pass.diff_stats.lines_changed > 0 then
-        table.insert(stats_parts, string.format("Δ%d lines", pass.diff_stats.lines_changed))
-      end
-      if #stats_parts > 0 then
-        return "       D: " .. table.concat(stats_parts, ", ")
-      end
-    elseif pass.changed and pass.diff_stats and pass.diff_stats.lines_changed > 0 then
-      return string.format("       D: Δ%d lines", pass.diff_stats.lines_changed)
-    end
-    return ""
-  end
-
-  return ""
+  -- Update selection highlighting
+  M.update_selection_highlighting()
 end
 
 -- Setup custom highlight groups for pipeline viewer
@@ -873,211 +579,195 @@ local function setup_highlight_groups()
 end
 
 -- Apply syntax highlighting to the pass list buffer
+-- This applies STATIC highlighting only (pass numbers, scopes, names)
+-- Selection highlighting is handled separately in update_pass_list_cursor()
 function M.apply_pass_list_highlights()
   local bufnr = M.state.pass_list_bufnr
   local ns_id = M.state.ns_id
+  local line_map = M.state.pass_list_line_map
+  local groups = M.state.grouped_passes
 
-  -- Setup highlight groups (refresh on every call to support colorscheme changes)
+  if not line_map or not groups then
+    return
+  end
+
   setup_highlight_groups()
-
-  -- Clear previous highlights
   vim.api.nvim_buf_clear_namespace(bufnr, ns_id, 0, -1)
 
-  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local num_width = M.state.num_width  -- Use cached value
+  local line_count = vim.api.nvim_buf_line_count(bufnr)
 
-  -- Calculate number width for consistent indentation
-  local num_width = M.state.grouped_passes and #tostring(#M.state.grouped_passes) or 2
-  local fn_indent = 1 + num_width + 2  -- marker(1) + num_width + ". "(2)
-  local fn_marker_pos = fn_indent  -- Position of ● marker
-  local fn_name_start = fn_indent + 4  -- After "● " (1 byte) + 3 spaces
+  for line_idx = 1, line_count do
+    local line_num = line_idx - 1  -- 0-indexed for API
+    local info = line_map[line_idx]
 
-  for line_idx, line in ipairs(lines) do
-    local line_num = line_idx - 1  -- Convert to 0-indexed
+    if not info then
+      -- No line_map entry, skip
+    elseif info.type == "header" then
+      vim.hl.range(bufnr, ns_id, "Title", {line_num, 0}, {line_num, -1})
 
-    -- Line 1: Header - highlight as Title
-    if line_idx == 1 then
-      vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Title", line_num, 0, -1)
+    elseif info.type == "separator" then
+      vim.hl.range(bufnr, ns_id, "Comment", {line_num, 0}, {line_num, -1})
 
-    -- Line 2: Separator - highlight as Comment
-    elseif line_idx == 2 then
-      vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Comment", line_num, 0, -1)
+    elseif info.type == "blank" then
+      -- No highlighting
 
-    -- Stats lines (start with spaces and "D:")
-    elseif line:match("^%s+D:") then
-      vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Comment", line_num, 0, -1)
+    elseif info.type == "footer" then
+      vim.hl.range(bufnr, ns_id, "Comment", {line_num, 0}, {line_num, -1})
 
-    -- Legend and Keys lines at the end
-    elseif line:match("^Legend:") or line:match("^Keys:") then
-      vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Comment", line_num, 0, -1)
+    elseif info.type == "module_stats" or info.type == "function_stats" then
+      vim.hl.range(bufnr, ns_id, "Comment", {line_num, 0}, {line_num, -1})
 
-    -- Indented function entry - dynamically detect based on fn_indent
-    elseif line:match("^" .. string.rep(" ", fn_marker_pos) .. "[● ]") then
-      -- Check if marker is ●
-      if line:sub(fn_marker_pos + 1, fn_marker_pos + 3) == "●" then
-        -- Highlight selection marker (● at dynamic position)
-        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GodboltPipelineSelectedMarker", line_num, fn_marker_pos, fn_marker_pos + 3)  -- ● is 3 bytes in UTF-8
+    elseif info.type == "module" then
+      -- Module pass line: " 1. [M] PassName"
+      local pass = M.state.passes[info.original_index]
+
+      -- Pass number (skip marker at column 0)
+      -- Format: ">NNN." where N is digit, marker is col 0, first digit starts at col 1
+      local num_start = 1
+      local num_end = num_start + num_width  -- exclusive
+      vim.hl.range(bufnr, ns_id, "GodboltPipelinePassNumber", {line_num, num_start}, {line_num, num_end})
+
+      -- Get line content for pattern matching
+      local line = vim.api.nvim_buf_get_lines(bufnr, line_num, line_num + 1, false)[1]
+
+      -- [M] scope indicator - search for it
+      local scope_col = line:find("%[M%]")
+      if scope_col then
+        -- scope_col is 1-indexed position of '[', highlight '[M]' (3 chars), exclusive end
+        vim.hl.range(bufnr, ns_id, "GodboltPipelineScopeModule", {line_num, scope_col - 1}, {line_num, scope_col + 2})
       end
 
-      -- Determine if this function's pass has changes
-      local func_name = line:match("^" .. string.rep(" ", fn_marker_pos) .. "●   (.+)$") or line:match("^" .. string.rep(" ", fn_indent) .. "   (.+)$")
-      local func_changed = false
-
-      if func_name and M.state.grouped_passes then
-        -- Look backwards to find the group header
-        for back_i = line_idx - 1, 1, -1 do
-          local prev_line = lines[back_i]
-          if prev_line and prev_line:match("^[> ]%s*%d+%. ") and (prev_line:match("▸") or prev_line:match("▾")) then
-            -- Found group header, get display index
-            local display_idx = tonumber(prev_line:match("^[> ]%s*(%d+)%."))
-            if display_idx then
-              -- Find this group in grouped_passes
-              for _, group in ipairs(M.state.grouped_passes) do
-                if group.display_index == display_idx and (group.type == "function_group" or group.type == "cgscc_group") and group.functions then
-                  -- Find this function in the group
-                  for _, fn in ipairs(group.functions) do
-                    if fn.target == func_name then
-                      func_changed = M.state.passes[fn.original_index].changed
-                      break
-                    end
-                  end
-                end
-              end
-            end
-            break
-          end
-        end
-      end
-
-      -- Highlight function name (starts after marker + 3 spaces)
-      local highlight_group = func_changed and "GodboltPipelinePassName" or "GodboltPipelineUnchanged"
-      vim.api.nvim_buf_add_highlight(bufnr, ns_id, highlight_group, line_num, fn_name_start, -1)
-
-    -- Group header lines "> 5. ▸ [F] PassName (N functions)" or " 10. ▾ [F] PassName..."
-    -- Note: Can't use [▸▾] character class with UTF-8, must check explicitly
-    elseif line:match("^[> ]%s*%d+%. ") and (line:match("▸") or line:match("▾")) then
-      local col = 0
-
-      -- Highlight selection marker (> or space at position 0)
-      if line:match("^>") then
-        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GodboltPipelineSelectedMarker", line_num, 0, 1)
-      end
-      col = 1  -- After marker
-
-      -- Skip space(s), find and highlight number
-      local num_start, num_end = line:find("%d+", col + 1)
-      if num_start then
-        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GodboltPipelinePassNumber", line_num, num_start - 1, num_end)
-        col = num_end + 1  -- After number, skip ". "
-      end
-
-      -- Find fold icon (▸ or ▾) - it's 3 bytes in UTF-8
-      local fold_start = col
-      vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GodboltPipelineFoldIcon", line_num, fold_start, fold_start + 3)
-      col = fold_start + 4  -- After fold icon + space
-
-      -- Find and highlight scope indicator [F] or [C]
-      local scope_start, scope_end = line:find("%[%w%]", col)
-      if scope_start then
-        local scope_type = line:match("%[(%w)%]", col)
-        local scope_hl = "GodboltPipelineScopeModule"
-        if scope_type == "F" then
-          scope_hl = "GodboltPipelineScopeFunction"
-        elseif scope_type == "C" then
-          scope_hl = "GodboltPipelineScopeCGSCC"
-        end
-        vim.api.nvim_buf_add_highlight(bufnr, ns_id, scope_hl, line_num, scope_start - 1, scope_end)
-        col = scope_end + 1  -- Skip space after scope
-      end
-
-      -- Highlight pass name and function count
-      local count_start = line:find(" %(", col)
-      if count_start then
-        -- Pass name (everything before count)
-        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GodboltPipelineGroupHeader", line_num, col, count_start)
-        -- Function count (e.g., "(3 functions)")
-        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GodboltPipelineGroupCount", line_num, count_start, -1)
-      else
-        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GodboltPipelineGroupHeader", line_num, col, -1)
-      end
-
-      -- Check if this group has changes - gray out if not
-      local display_idx = tonumber(line:match("^[> ]%s*(%d+)%."))
-      if display_idx and M.state.grouped_passes then
-        for _, group in ipairs(M.state.grouped_passes) do
-          if group.display_index == display_idx and (group.type == "function_group" or group.type == "cgscc_group") then
-            if not group.has_changes then
-              -- Override with gray highlighting for unchanged groups
-              -- Re-highlight from pass name to end of line
-              vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GodboltPipelineUnchanged", line_num, col, -1)
-            end
-            break
-          end
-        end
-      end
-
-    -- Module pass entry lines "> 1. [M] PassName" or " 10. [M] PassName"
-    elseif line:match("^[> ]%s*%d+%. %[M%]") then
-      local col = 0
-
-      -- Highlight selection marker (> or space)
-      if line:match("^>") then
-        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GodboltPipelineSelectedMarker", line_num, 0, 1)
-      end
-      col = 1
-
-      -- Skip space, then find and highlight pass number
-      local num_start, num_end = line:find("%d+", col + 1)
-      if num_start then
-        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GodboltPipelinePassNumber", line_num, num_start - 1, num_end)
-        col = num_end + 1  -- Skip ". "
-      end
-
-      -- Find and highlight scope indicator [M]
-      local scope_start, scope_end = line:find("%[M%]", col)
-      if scope_start then
-        vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GodboltPipelineScopeModule", line_num, scope_start - 1, scope_end)
-        col = scope_end + 1  -- Skip space after scope
-      end
-
-      -- Check if module pass changed
-      local pass_num = tonumber(line:match("^[> ]%s*(%d+)%."))
-      if pass_num and M.state.grouped_passes then
-        local pass_changed = false
-        for _, group in ipairs(M.state.grouped_passes) do
-          if group.display_index == pass_num and group.type == "module" then
-            pass_changed = M.state.passes[group.original_index].changed
-            break
-          end
-        end
-
-        if not pass_changed then
-          -- Gray out unchanged module passes
-          vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GodboltPipelineUnchanged", line_num, col, -1)
+      -- Pass name starts after "[M] "
+      local name_start = scope_col and (scope_col + 3) or (1 + num_width + 3)  -- after ". [M] "
+      if pass.changed then
+        -- Look for " on " to split highlighting
+        local on_pos = line:find(" on ", name_start, true)
+        if on_pos then
+          vim.hl.range(bufnr, ns_id, "GodboltPipelinePassName", {line_num, name_start}, {line_num, on_pos - 1})
+          vim.hl.range(bufnr, ns_id, "Special", {line_num, on_pos - 1}, {line_num, on_pos + 3})
+          vim.hl.range(bufnr, ns_id, "String", {line_num, on_pos + 3}, {line_num, -1})
         else
-          -- Highlight pass name (everything up to " on ")
-          local on_start = line:find(" on ", col)
-          if on_start then
-            -- Pass name
-            vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GodboltPipelinePassName", line_num, col, on_start - 1)
-            -- Highlight " on " as Special
-            vim.api.nvim_buf_add_highlight(bufnr, ns_id, "Special", line_num, on_start - 1, on_start + 3)
-            -- Highlight target (everything after "on ")
-            vim.api.nvim_buf_add_highlight(bufnr, ns_id, "String", line_num, on_start + 3, -1)
-          else
-            -- No " on " found, highlight rest as pass name
-            vim.api.nvim_buf_add_highlight(bufnr, ns_id, "GodboltPipelinePassName", line_num, col, -1)
-          end
+          vim.hl.range(bufnr, ns_id, "GodboltPipelinePassName", {line_num, name_start}, {line_num, -1})
         end
+      else
+        vim.hl.range(bufnr, ns_id, "GodboltPipelineUnchanged", {line_num, name_start}, {line_num, -1})
       end
+
+    elseif info.type == "group_header" then
+      -- Group header: " 109. ▸ [F] PassName (N functions)"
+      local group = groups[info.group_idx]
+
+      -- Pass number (skip marker at column 0)
+      local num_start = 1
+      local num_end = num_start + num_width  -- exclusive
+      vim.hl.range(bufnr, ns_id, "GodboltPipelinePassNumber", {line_num, num_start}, {line_num, num_end})
+
+      -- Fold icon ▸ or ▾ - UTF-8 char is 3 bytes
+      -- Position: after ">NNN. " = 1 + num_width + 2
+      local fold_start = 1 + num_width + 2
+      local fold_end = fold_start + 3  -- 3 bytes, exclusive end
+      vim.hl.range(bufnr, ns_id, "GodboltPipelineFoldIcon", {line_num, fold_start}, {line_num, fold_end})
+
+      -- Scope indicator [F] or [C]
+      -- Position: after ">NNN. ▸ " = 1 + num_width + 2 + 3 + 1 = num_width + 7
+      local scope_start = 1 + num_width + 2 + 3 + 1
+      local scope_end = scope_start + 3  -- "[F]" is 3 chars, exclusive end
+      local scope_hl = group.scope_type == "cgscc" and "GodboltPipelineScopeCGSCC" or "GodboltPipelineScopeFunction"
+      vim.hl.range(bufnr, ns_id, scope_hl, {line_num, scope_start}, {line_num, scope_end})
+
+      -- Pass name starts after ">NNN. ▸ [F] "
+      local name_start = scope_end + 1
+
+      -- Get line content for pattern matching
+      local line = vim.api.nvim_buf_get_lines(bufnr, line_num, line_num + 1, false)[1]
+
+      local count_col = line:find(" %(", name_start, true)
+      if count_col then
+        -- Highlight pass name up to " ("
+        vim.hl.range(bufnr, ns_id, "GodboltPipelineGroupHeader", {line_num, name_start}, {line_num, count_col - 1})
+        -- Highlight count " (N functions)"
+        vim.hl.range(bufnr, ns_id, "GodboltPipelineGroupCount", {line_num, count_col - 1}, {line_num, -1})
+      else
+        vim.hl.range(bufnr, ns_id, "GodboltPipelineGroupHeader", {line_num, name_start}, {line_num, -1})
+      end
+
+      -- Gray out if no changes
+      if not group.has_changes then
+        vim.hl.range(bufnr, ns_id, "GodboltPipelineUnchanged", {line_num, name_start}, {line_num, -1})
+      end
+
+    elseif info.type == "function_entry" then
+      -- Function entry: "      ●   functionName" or "          functionName"
+      -- Note: marker can be ● (3 UTF-8 bytes) or space (1 byte), affecting alignment
+      local pass = M.state.passes[info.original_index]
+
+      -- Get line to determine marker type
+      local line = vim.api.nvim_buf_get_lines(bufnr, line_num, line_num + 1, false)[1]
+
+      local fn_marker_col = 1 + num_width + 2
+      -- Check if marker is ● (UTF-8 starts with 0xE2) or space
+      local marker_byte = line:byte(fn_marker_col + 1)  -- +1 for 1-indexed Lua strings
+      local marker_is_bullet = marker_byte == 0xE2
+
+      -- Calculate name start: marker_col + marker_size + 3 spaces
+      local name_start = marker_is_bullet and (fn_marker_col + 3 + 3) or (fn_marker_col + 1 + 3)
+
+      local highlight_group = pass.changed and "GodboltPipelinePassName" or "GodboltPipelineUnchanged"
+      vim.hl.range(bufnr, ns_id, highlight_group, {line_num, name_start}, {line_num, -1})
     end
   end
 end
 
--- Extract function name from pass name
--- @param pass_name: e.g., "SROAPass on foo" or "InstCombinePass on bar"
--- @return: function name (e.g., "foo" or "bar") or nil
-local function extract_function_name(pass_name)
-  return pass_name:match(" on (.+)$")
+-- Update selection highlighting for the currently selected pass
+-- This is called from update_pass_list_cursor() when the selection changes
+-- Uses a separate namespace so we can clear/update it without touching static highlights
+function M.update_selection_highlighting()
+  local bufnr = M.state.pass_list_bufnr
+  local ns_sel = M.state.ns_selection
+  local line_map = M.state.pass_list_line_map
+  local groups = M.state.grouped_passes
+
+  if not line_map or not groups then
+    return
+  end
+
+  -- Clear all previous selection highlighting
+  vim.api.nvim_buf_clear_namespace(bufnr, ns_sel, 0, -1)
+
+  local num_width = M.state.num_width  -- Use cached value
+
+  -- Find the line(s) to highlight based on current_index
+  for line_idx, info in pairs(line_map) do
+    local line_num = line_idx - 1  -- 0-indexed
+
+    if info.type == "module" and info.original_index == M.state.current_index then
+      -- Highlight the > marker at column 0 (single char, exclusive end = 1)
+      vim.hl.range(bufnr, ns_sel, "GodboltPipelineSelectedMarker", {line_num, 0}, {line_num, 1})
+      break
+
+    elseif info.type == "group_header" then
+      -- Check if this group contains the selected function
+      local group = groups[info.group_idx]
+      if group and (group.type == "function_group" or group.type == "cgscc_group") then
+        for _, fn in ipairs(group.functions or {}) do
+          if fn.original_index == M.state.current_index then
+            -- Highlight the > marker at column 0 (single char, exclusive end = 1)
+            vim.hl.range(bufnr, ns_sel, "GodboltPipelineSelectedMarker", {line_num, 0}, {line_num, 1})
+            goto done  -- Found it, stop searching
+          end
+        end
+      end
+
+    elseif info.type == "function_entry" and info.original_index == M.state.current_index and not M.state.on_group_header then
+      -- Highlight the ● marker (3 UTF-8 bytes, exclusive end)
+      local fn_marker_col = 1 + num_width + 2
+      vim.hl.range(bufnr, ns_sel, "GodboltPipelineSelectedMarker", {line_num, fn_marker_col}, {line_num, fn_marker_col + 3})
+      break
+    end
+  end
+
+  ::done::
 end
 
 -- Pre-compute statistics for all passes asynchronously in chunks
@@ -1525,11 +1215,6 @@ function M.show_diff(index)
   -- Update pass list highlighting
   M.update_pass_list_cursor(old_index, index)
 
-  -- If virtual scrolling is enabled, re-render viewport to update markers
-  if M.state.virtual_scroll.enabled then
-    M.render_virtual_viewport()
-  end
-
   -- Print stats
   if M.state.config.show_stats then
     M.show_stats(index)
@@ -1552,152 +1237,38 @@ function M.show_diff(index)
   end
 end
 
--- Lightweight marker-only update (O(1) instead of O(n))
--- This updates ONLY the marker characters without rebuilding the entire list
--- @param old_index: previous current_index (to remove old markers)
--- @param new_index: new current_index (to add new markers)
-local function update_markers_only(old_index, new_index)
-  local bufnr = M.state.pass_list_bufnr
-  local ns_id = M.state.ns_id
-  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  local line_map = M.state.pass_list_line_map
-
-  if not line_map then return nil end
-
-  -- Calculate number width for consistent indentation
-  local num_width = M.state.grouped_passes and #tostring(#M.state.grouped_passes) or 2
-  local fn_marker_pos = 1 + num_width + 2  -- marker(1) + num_width + ". "(2)
-
-  vim.api.nvim_buf_set_option(bufnr, 'modifiable', true)
-
-  -- Track which lines need marker updates (but don't modify yet)
-  local new_marker_line = nil
-  local new_fn_marker_line = nil
-
-  -- Find old markers to remove using line_map to find where old_index was
-  local old_group_marker_lines = {}  -- Lines with > marker
-  local old_fn_marker_lines = {}     -- Lines with ● marker
-
-  -- Find lines that correspond to old_index using line_map
-  for line_num, line_info in pairs(line_map) do
-    if line_info.original_index == old_index then
-      -- This line might have a marker
-      if line_num <= #lines then
-        local line = lines[line_num]
-        if line:sub(1, 1) == ">" then
-          if line_info.type == "module" or line_info.type == "group_header" then
-            old_group_marker_lines[line_num] = true
-          end
-        end
-        if line:sub(fn_marker_pos + 1, fn_marker_pos + 3) == "●" then
-          if line_info.type == "function_entry" then
-            old_fn_marker_lines[line_num] = true
-          end
-        end
-      end
-    end
-
-    -- Also check if this is a group header for a group containing old_index
-    if line_info.type == "group_header" then
-      local groups = M.state.grouped_passes
-      local group = groups[line_info.group_idx]
-      if group and (group.type == "function_group" or group.type == "cgscc_group") then
-        for _, fn in ipairs(group.functions or {}) do
-          if fn.original_index == old_index then
-            -- This group header might have a marker
-            if line_num <= #lines then
-              local line = lines[line_num]
-              if line:sub(1, 1) == ">" then
-                old_group_marker_lines[line_num] = true
-              end
-            end
-            break
-          end
-        end
-      end
-    end
-  end
-
-  -- Use line_map to find which lines to mark based on new_index
-  local target_line_num = nil
-
-  -- Find the line with original_index == new_index
-  for line_num, line_info in pairs(line_map) do
-    if line_info.original_index == new_index then
-      if line_info.type == "module" then
-        -- Mark the module line
-        new_marker_line = line_num
-        target_line_num = line_num
-        break
-      elseif line_info.type == "function_entry" then
-        -- Mark both the group header and the function entry
-        local groups = M.state.grouped_passes
-        local group = groups[line_info.group_idx]
-
-        if group then
-          -- Find the group header line
-          for header_line_num, header_info in pairs(line_map) do
-            if header_info.type == "group_header" and header_info.group_idx == line_info.group_idx then
-              new_marker_line = header_line_num
-              break
-            end
-          end
-
-          -- Mark the specific function entry
-          if not group.folded then
-            new_fn_marker_line = line_num
-            target_line_num = line_num
-          else
-            target_line_num = new_marker_line
-          end
-        end
-        break
-      end
-    end
-  end
-
-  -- Now update lines individually using nvim_buf_set_text to preserve highlights
-  -- Remove old group markers (>)
-  for line_idx, _ in pairs(old_group_marker_lines) do
-    vim.api.nvim_buf_set_text(bufnr, line_idx - 1, 0, line_idx - 1, 1, {" "})
-  end
-
-  -- Remove old function markers (●)
-  for line_idx, _ in pairs(old_fn_marker_lines) do
-    vim.api.nvim_buf_set_text(bufnr, line_idx - 1, fn_marker_pos, line_idx - 1, fn_marker_pos + 3, {" "})
-  end
-
-  -- Add new markers
-  if new_marker_line then
-    vim.api.nvim_buf_set_text(bufnr, new_marker_line - 1, 0, new_marker_line - 1, 1, {">"})
-  end
-  if new_fn_marker_line then
-    vim.api.nvim_buf_set_text(bufnr, new_fn_marker_line - 1, fn_marker_pos, new_fn_marker_line - 1, fn_marker_pos + 1, {"●"})
-  end
-
-  vim.api.nvim_buf_set_option(bufnr, 'modifiable', false)
-
-  return target_line_num
-end
-
 -- Update the cursor marker in pass list
 -- IMPORTANT: indices are ORIGINAL indices in M.state.passes, NOT display_index!
 -- @param old_index: previous current_index (to remove old markers)
 -- @param new_index: new current_index (to add new markers)
 function M.update_pass_list_cursor(old_index, new_index)
-  -- In virtual scroll mode, skip update_markers_only() and rely on render_virtual_viewport()
-  -- This is because update_markers_only() operates on buffer lines, but virtual scroll
-  -- only has a subset of lines in the buffer. The viewport will be re-rendered in show_diff().
-  if M.state.virtual_scroll.enabled then
-    return
-  end
+  -- Update selection highlighting (uses separate namespace, very fast)
+  M.update_selection_highlighting()
 
-  -- Use lightweight marker update instead of full rebuild
-  local target_line_num = update_markers_only(old_index, new_index)
+  -- Move cursor to the selected line
+  local line_map = M.state.pass_list_line_map
+  if not line_map then return end
 
-  -- Move cursor to the marked line
-  if target_line_num then
-    pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, {target_line_num, 0})
+  -- Find the line corresponding to new_index
+  for line_idx, info in pairs(line_map) do
+    if info.type == "module" and info.original_index == new_index then
+      pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, {line_idx, 0})
+      return
+    elseif info.type == "function_entry" and info.original_index == new_index then
+      -- If on group header, move to group header; otherwise move to function entry
+      if M.state.on_group_header then
+        -- Find the group header for this function
+        for header_line_idx, header_info in pairs(line_map) do
+          if header_info.type == "group_header" and header_info.group_idx == info.group_idx then
+            pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, {header_line_idx, 0})
+            return
+          end
+        end
+      else
+        pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, {line_idx, 0})
+        return
+      end
+    end
   end
 end
 
@@ -1854,6 +1425,8 @@ function M.fold_parent_group_under_cursor()
         for new_i, updated_info in pairs(line_map_updated) do
           if updated_info.type == "group_header" and updated_info.group_idx == prev_info.group_idx then
             pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, {new_i, 0})
+            -- Update view to show group header state (cleared buffers)
+            M.select_pass_for_viewing()
             return true
           end
         end
@@ -1882,24 +1455,10 @@ local function goto_next_pass_line()
                       line_info.type == "group_header" or
                       line_info.type == "function_entry") then
       -- Found selectable line - move there
-      -- Temporarily disable CursorMoved autocmd to prevent race condition
-      if M.state.cursor_moved_autocmd then
-        vim.api.nvim_del_autocmd(M.state.cursor_moved_autocmd)
-      end
-
-      -- Move cursor
       vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {i, 0})
 
       -- Update current_index and render
       M.select_pass_for_viewing()
-
-      -- Re-enable CursorMoved autocmd
-      M.state.cursor_moved_autocmd = vim.api.nvim_create_autocmd("CursorMoved", {
-        buffer = M.state.pass_list_bufnr,
-        callback = function()
-          M.update_virtual_viewport()
-        end
-      })
 
       return
     end
@@ -1922,26 +1481,11 @@ local function goto_prev_pass_line()
     if line_info and (line_info.type == "module" or
                       line_info.type == "group_header" or
                       line_info.type == "function_entry") then
-
-      -- Temporarily disable CursorMoved autocmd to prevent race condition
-      if M.state.cursor_moved_autocmd then
-        vim.api.nvim_del_autocmd(M.state.cursor_moved_autocmd)
-        M.state.cursor_moved_autocmd = nil
-      end
-
-      -- Move cursor
+      -- Found selectable line - move there
       vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {i, 0})
 
       -- Update current_index and render
       M.select_pass_for_viewing()
-
-      -- Re-enable CursorMoved autocmd
-      M.state.cursor_moved_autocmd = vim.api.nvim_create_autocmd("CursorMoved", {
-        buffer = M.state.pass_list_bufnr,
-        callback = function()
-          M.update_virtual_viewport()
-        end
-      })
 
       return
     end
@@ -2132,7 +1676,9 @@ function M.select_pass_for_viewing()
     -- On a group header: set current_index to first function and clear buffers
     local group = groups[line_info.group_idx]
     if group and (group.type == "function_group" or group.type == "cgscc_group") and group.functions and #group.functions > 0 then
+      local old_index = M.state.current_index
       M.state.current_index = group.functions[1].original_index
+      M.state.on_group_header = true  -- Don't show function marker
 
       -- Clear both buffers
       vim.api.nvim_buf_set_option(M.state.before_bufnr, 'modifiable', true)
@@ -2149,16 +1695,21 @@ function M.select_pass_for_viewing()
         string.format("Group: %s%s", group.pass_name, fold_state))
       pcall(vim.api.nvim_buf_set_name, M.state.after_bufnr,
         string.format("%d functions", #group.functions))
+
+      -- Update markers to remove function marker
+      M.update_pass_list_cursor(old_index, M.state.current_index)
     end
     return
 
   elseif line_info.type == "function_entry" then
     -- On a function entry: show diff for that function
+    M.state.on_group_header = false  -- Clear flag
     M.show_diff(line_info.original_index)
     return
 
   elseif line_info.type == "module" then
     -- On a module pass: show diff
+    M.state.on_group_header = false  -- Clear flag
     M.show_diff(line_info.original_index)
     return
   end
