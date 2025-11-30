@@ -815,6 +815,25 @@ function M.compute_stats_async(callback)
   process_chunk(1)
 end
 
+-- Compute a hash of IR lines for efficient change detection
+-- This is more reliable than line count comparison
+local function compute_ir_hash(ir_lines)
+  if not ir_lines or #ir_lines == 0 then
+    return 0
+  end
+
+  -- Concatenate all lines and compute hash
+  local content = table.concat(ir_lines, "\n")
+
+  -- Simple hash function using Lua's string hashing
+  local hash = 0
+  for i = 1, #content do
+    hash = (hash * 31 + string.byte(content, i)) % 2147483647
+  end
+
+  return hash
+end
+
 -- Pre-compute which passes actually changed IR
 -- Sets pass.changed (boolean) and pass.diff_stats (table) for each pass
 -- Now fully async with callback to avoid UI freeze on large pass counts
@@ -867,15 +886,39 @@ function M.compute_pass_changes(callback)
       local pass = M.state.passes[index]
 
       -- OPTIMIZATION: Skip expensive IR comparison for passes pre-marked as unchanged (--print-changed)
+      -- However, we still need to verify with hash comparison since LLVM may include metadata
       if pass.changed == false then
-        -- Pass was omitted by LLVM (--print-changed), so we know it didn't change
-        -- Set diff_stats to 0 without expensive comparison
-        pass.diff_stats = {
-          lines_changed = 0,
-          lines_before = #(pass.ir or {}),
-          lines_after = #(pass.ir or {}),
-        }
-        goto continue
+        -- Pass was omitted by LLVM (--print-changed), but verify with hash
+        local before_ir = pass.before_ir or M.get_before_ir_for_pass(index)
+        local after_ir = pass.ir
+
+        -- Apply same filtering as display
+        if M.state.config and M.state.config.display and M.state.config.display.strip_debug_metadata then
+          before_ir = select(1, ir_utils.filter_debug_metadata(before_ir))
+          after_ir = select(1, ir_utils.filter_debug_metadata(after_ir))
+        end
+
+        -- Use hash comparison for efficiency
+        local before_hash = compute_ir_hash(before_ir)
+        local after_hash = compute_ir_hash(after_ir)
+
+        if before_hash == after_hash then
+          -- Truly unchanged
+          pass.changed = false
+          pass.diff_stats = {
+            lines_changed = 0,
+            lines_before = #before_ir,
+            lines_after = #after_ir,
+          }
+        else
+          -- Hash mismatch - LLVM's --print-changed optimization was wrong
+          -- Fall through to full comparison below
+          pass.changed = nil  -- Reset so we do full comparison
+        end
+
+        if pass.changed == false then
+          goto continue
+        end
       end
 
       -- Get before IR - use stored before_ir if available, otherwise reconstruct
@@ -896,31 +939,27 @@ function M.compute_pass_changes(callback)
         after_ir = select(1, ir_utils.filter_debug_metadata(after_ir))
       end
 
-      -- Compare IR and count differences
+      -- Use hash comparison first for efficiency
+      local before_hash = compute_ir_hash(before_ir)
+      local after_hash = compute_ir_hash(after_ir)
+
       local changed = false
       local lines_changed = 0
-      local max_lines = math.max(#before_ir, #after_ir)
 
-      -- OPTIMIZATION: Early exit if line counts differ
-      -- If sizes are different, we know it changed - no need to scan all lines
-      if #before_ir ~= #after_ir then
-        changed = true
-        lines_changed = math.abs(#after_ir - #before_ir)
-
-        -- Still scan common lines to get accurate count
-        local min_lines = math.min(#before_ir, #after_ir)
-        for i = 1, min_lines do
-          if before_ir[i] ~= after_ir[i] then
-            lines_changed = lines_changed + 1
-          end
-        end
+      if before_hash == after_hash then
+        -- Hashes match - IR is identical
+        changed = false
+        lines_changed = 0
       else
-        -- Same size, need to check line-by-line
+        -- Hashes differ - need to count changed lines
+        changed = true
+        local max_lines = math.max(#before_ir, #after_ir)
+
+        -- Count different lines
         for i = 1, max_lines do
           local before_line = before_ir[i] or ""
           local after_line = after_ir[i] or ""
           if before_line ~= after_line then
-            changed = true
             lines_changed = lines_changed + 1
           end
         end
