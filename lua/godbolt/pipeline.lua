@@ -166,14 +166,14 @@ run_opt_pipeline_async = function(input_file, passes_str, opts, callback)
   )
 
   -- Always print exact command for debugging
-  print("[" .. get_timestamp() .. "] [Pipeline] Running command:")
-  print("  " .. cmd)
+  vim.notify("[" .. get_timestamp() .. "] [Pipeline] Running command:")
+  vim.notify("  " .. cmd)
 
   local start_time = vim.loop.hrtime()
   local timer = vim.loop.new_timer()
   local timer_cancelled = false
 
-  print("[" .. get_timestamp() .. "] [Pipeline] ⏳ Compiling... (UI stays responsive)")
+  print("[" .. get_timestamp() .. "] [Pipeline] ⏳ Compiling...")
 
   -- Show progress every 2 seconds
   timer:start(1000, 1000, vim.schedule_wrap(function()
@@ -247,8 +247,8 @@ run_opt_pipeline = function(input_file, passes_str, opts)
     input_file
   )
 
-  print("[" .. get_timestamp() .. "] [Pipeline] Running command:")
-  print("  " .. cmd)
+  vim.notify("[" .. get_timestamp() .. "] [Pipeline] Running command:")
+  vim.notify("  " .. cmd)
 
   local output = vim.fn.system(cmd)
 
@@ -333,14 +333,14 @@ run_clang_pipeline_async = function(input_file, passes_str, lang_args, opts, cal
   if cwd then
     cmd_display = string.format("cd %s && %s", cwd, cmd_display)
   end
-  print("[" .. get_timestamp() .. "] [Pipeline] Running command:")
-  print("  " .. cmd_display)
+  vim.notify("[" .. get_timestamp() .. "] [Pipeline] Running command:")
+  vim.notify("  " .. cmd_display)
 
   local start_time = vim.loop.hrtime()
   local timer = vim.loop.new_timer()
   local timer_cancelled = false
 
-  print("[" .. get_timestamp() .. "] [Pipeline] ⏳ Compiling... (UI stays responsive)")
+  print("[" .. get_timestamp() .. "] [Pipeline] ⏳ Compiling...")
 
   -- Show progress every 2 seconds
   timer:start(1000, 1000, vim.schedule_wrap(function()
