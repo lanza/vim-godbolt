@@ -1,0 +1,26 @@
+--- !Passed
+Pass:            inline
+Name:            Inlined
+DebugLoc:        { File: '/tmp/test.cpp', Line: 10, Column: 5 }
+Function:        compute
+Args:
+  - String:          'foo'
+...
+--- !Passed
+Pass:            inline
+Name:            Inlined
+DebugLoc:        { File: '/tmp/test.cpp', Line: 15, Column: 8 }
+Function:        main
+...
+--- !Missed
+Pass:            inline
+Name:            NotInlined
+DebugLoc:        { File: '/tmp/test.cpp', Line: 20, Column: 3 }
+Function:        expensive
+...
+--- !Analysis
+Pass:            vectorize
+Name:            VectorizedLoop
+DebugLoc:        { File: '/tmp/test.cpp', Line: 25, Column: 2 }
+Function:        loop
+...
