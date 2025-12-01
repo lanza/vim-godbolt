@@ -1,0 +1,63 @@
+--- !Passed
+Pass:            inline
+Name:            Inlined
+DebugLoc:        { File: '/tmp/test.cpp', Line: 10, Column: 5 }
+Function:        compute
+Args:
+  - Callee:        'add'
+  - String:        'inlined into '
+  - Caller:        'compute'
+  - Cost:          '-35'
+  - Threshold:     '337'
+...
+--- !Passed
+Pass:            inline
+Name:            Inlined
+DebugLoc:        { File: '/tmp/test.cpp', Line: 15, Column: 8 }
+Function:        main
+Args:
+  - Callee:        'compute'
+  - String:        'inlined into '
+  - Caller:        'main'
+  - Cost:          '120'
+  - Threshold:     '337'
+...
+--- !Missed
+Pass:            inline
+Name:            NotInlined
+DebugLoc:        { File: '/tmp/test.cpp', Line: 20, Column: 3 }
+Function:        expensive
+Args:
+  - Callee:        'complex_function'
+  - String:        'because '
+  - Reason:        'too costly to inline (cost=450, threshold=337)'
+...
+--- !Analysis
+Pass:            vectorize
+Name:            VectorizedLoop
+DebugLoc:        { File: '/tmp/test.cpp', Line: 25, Column: 2 }
+Function:        loop
+Args:
+  - String:        'vectorized loop (vectorization width: '
+  - VectorizationFactor: '4'
+  - String:        ', interleave count: '
+  - InterleaveCount: '2'
+  - String:        ')'
+...
+--- !Passed
+Pass:            sroa
+Name:            ScalarReplacementPerformed
+DebugLoc:        { File: '/tmp/test.cpp', Line: 30, Column: 10 }
+Function:        allocate_struct
+Args:
+  - String:        'scalar replacement of aggregates performed'
+...
+--- !Missed
+Pass:            loop-vectorize
+Name:            MissedVectorization
+DebugLoc:        { File: '/tmp/test.cpp', Line: 35, Column: 3 }
+Function:        dynamic_loop
+Args:
+  - String:        'loop not vectorized: '
+  - Reason:        'cannot identify array bounds'
+...

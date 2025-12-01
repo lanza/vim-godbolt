@@ -115,9 +115,14 @@ Tests run with:
 
 ## Test Results
 
-Current status: **77/78 tests passing** (98.7%)
+Current status: **130/131 tests passing** (99.2%)
 
 The one failing test ("parses two functions with function passes - THE KEY TEST") is a pre-existing issue in the pipeline parser where InstCombinePass on bar incorrectly contains @foo.
+
+### New Tests (55 total)
+- `remarks_spec.lua` (25 tests) - YAML parser, attach_remarks_to_passes, file lifecycle
+- `keymaps_spec.lua` (16 tests) - Keymaps configuration, help menu, inline hints
+- `remarks_integration_spec.lua` (14 tests) - End-to-end integration tests for remarks features
 
 ## Troubleshooting
 
