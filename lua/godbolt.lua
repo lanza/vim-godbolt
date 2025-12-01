@@ -5,7 +5,75 @@ local function get_timestamp()
   return os.date("%H:%M:%S")
 end
 
+---@class GodboltLineMapping
+---@field enabled boolean Enable line mapping between source and IR
+---@field auto_scroll boolean Auto-scroll to mapped lines when cursor moves
+---@field throttle_ms number Throttle delay in milliseconds
+---@field silent_on_failure boolean Show error messages if debug info missing
+---@field show_compilation_cmd boolean Show compilation command when debug info fails
+
+---@class GodboltDisplay
+---@field strip_debug_metadata boolean Hide debug metadata (!123 = !{...}) in LLVM IR display
+
+---@class GodboltRemarksInlineHints
+---@field enabled boolean Show remarks as inline hints by default
+---@field format "icon"|"short"|"detailed" How much detail to show inline
+---@field position "eol"|"right_align" Position of inline hints
+
+---@class GodboltRemarks
+---@field pass boolean Enable optimization pass remarks
+---@field missed boolean Enable missed optimization remarks
+---@field analysis boolean Enable analysis remarks
+---@field filter string Regex filter for which passes to report (default: ".*" for all)
+---@field inline_hints GodboltRemarksInlineHints Inline hints configuration
+
+---@class GodboltKeymaps
+---@field next_pass string|string[] Move to next pass
+---@field prev_pass string|string[] Move to previous pass
+---@field next_changed string|string[] Jump to next changed pass
+---@field prev_changed string|string[] Jump to previous changed pass
+---@field toggle_fold string|string[] Toggle fold/unfold group
+---@field activate_line string|string[] Select pass or toggle fold
+---@field first_pass string|string[] Jump to first pass
+---@field last_pass string|string[] Jump to last pass
+---@field show_remarks string|string[] Show remarks for current pass
+---@field show_all_remarks string|string[] Show ALL remarks from all passes
+---@field toggle_inline_hints string|string[] Toggle inline hints on/off
+---@field show_help string|string[] Show help menu
+---@field quit string|string[] Quit pipeline viewer
+
+---@class GodboltPipeline
+---@field enabled boolean Enable pipeline viewer
+---@field show_stats boolean Show statistics logging
+---@field start_at_final boolean Start at final pass instead of first
+---@field filter_unchanged boolean Filter out passes that didn't change IR
+---@field remarks GodboltRemarks Optimization remarks configuration
+---@field keymaps GodboltKeymaps Keymaps configuration for pipeline viewer
+
+---@class GodboltLTO
+---@field enabled boolean Enable LTO support
+---@field linker string Linker to use (ld.lld, lld, etc.)
+---@field keep_temps boolean Keep temporary object files
+---@field save_temps boolean Use -save-temps to preserve intermediate files
+---@field project_auto_detect boolean Auto-detect project files
+---@field compile_commands_path string Path to compile_commands.json
+
+---@class GodboltConfig
+---@field clang string Path to clang compiler
+---@field c_args string Default C compiler arguments
+---@field cpp_args string Default C++ compiler arguments
+---@field swift_args string Default Swift compiler arguments
+---@field swiftc string Path to swiftc compiler
+---@field opt string Path to opt tool
+---@field ll_args string Default LLVM IR arguments
+---@field window_cmd string|nil Custom window command
+---@field line_mapping GodboltLineMapping Line mapping configuration
+---@field display GodboltDisplay Display configuration
+---@field pipeline GodboltPipeline Pipeline configuration
+---@field lto GodboltLTO LTO configuration
+
 -- Default configuration
+---@type GodboltConfig
 M.config = {
   clang = "clang",
   c_args = "-std=c17",
@@ -45,7 +113,43 @@ M.config = {
       pass = true,
       missed = true,
       analysis = true,
-      filter = "inline",
+      filter = ".*",
+
+      -- Inline hints (virtual text) configuration
+      inline_hints = {
+        enabled = true,           -- Show remarks as inline hints by default
+        -- Format: "icon", "short", "detailed"
+        format = "short",         -- How much detail to show inline
+        position = "eol",         -- "eol" (end of line) or "right_align"
+      },
+    },
+
+    -- Keymaps configuration for pipeline viewer
+    keymaps = {
+      -- Pass list navigation
+      next_pass = { 'j', '<Down>' },
+      prev_pass = { 'k', '<Up>' },
+      next_changed = '<Tab>',
+      prev_changed = '<S-Tab>',
+
+      -- Folding
+      toggle_fold = 'o',
+      activate_line = '<CR>',
+
+      -- Jump to first/last
+      first_pass = 'g[',
+      last_pass = 'g]',
+
+      -- Show remarks popup
+      show_remarks = { 'R', 'gr' },
+      show_all_remarks = 'gR',  -- Show remarks from ALL passes
+      toggle_inline_hints = 'gh',  -- Toggle inline hints on/off
+
+      -- Show help menu
+      show_help = 'g?',
+
+      -- Quit
+      quit = 'q',
     },
   },
 
@@ -61,10 +165,11 @@ M.config = {
 }
 
 -- Setup function to override defaults
+---@param opts GodboltConfig|nil User configuration
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
 
-  -- Normalize remarks config: true → {pass=true, missed=true, analysis=true, filter="inline"}
+  -- Normalize remarks config: true → {pass=true, missed=true, analysis=true, filter=".*"}
   if M.config.pipeline and M.config.pipeline.remarks then
     local remarks = M.config.pipeline.remarks
     if remarks == true then
@@ -72,12 +177,24 @@ function M.setup(opts)
         pass = true,
         missed = true,
         analysis = true,
-        filter = "inline",
+        filter = ".*",
+        inline_hints = {
+          enabled = true,
+          format = "short",
+          position = "eol",
+        },
       }
     elseif type(remarks) == "table" then
       -- Set defaults for missing fields
       if remarks.filter == nil then
-        remarks.filter = "inline"
+        remarks.filter = ".*"
+      end
+      if remarks.inline_hints == nil then
+        remarks.inline_hints = {
+          enabled = true,
+          format = "short",
+          position = "eol",
+        }
       end
     end
   end
@@ -155,9 +272,9 @@ local function has_debug_disabling_flags(args)
 end
 
 -- Main godbolt function
--- @param args_str: string of compiler arguments (optional)
--- @param opts: table of options (optional)
---   - output: "llvm", "asm", or "auto" (default: "auto")
+---@param args_str string|nil Compiler arguments (optional)
+---@param opts table|nil Options table (optional)
+---  - output: "llvm", "asm", or "auto" (default: "auto")
 function M.godbolt(args_str, opts)
   args_str = args_str or ""
   opts = opts or {}

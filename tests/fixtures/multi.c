@@ -7,5 +7,5 @@ int bar(int y) {
 }
 
 int baz(int z) {
-    return foo(z) + bar(z);
+    return foo(z) + foo(z) + bar(z);
 }

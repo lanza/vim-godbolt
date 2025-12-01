@@ -48,46 +48,8 @@ local function has_lto_flags(args)
   return args:match("-flto") or args:match("-flink%-time%-optimization")
 end
 
--- Helper: Parse optimization remark line
--- @param line: stderr line from compiler
--- @return: remark_table or nil
---   remark_table: {category, message, location={file, line, column}}
---   category: "pass" | "missed" | "analysis"
-local function parse_remark_line(line)
-  -- Pattern: "file:line:col: remark: message [-Rpass-category]"
-  -- Example: "/tmp/test.c:5:18: remark: 'add' inlined into 'compute' [-Rpass=inline]"
-  local file, line_num, col, msg_and_tag = line:match("^(.+):(%d+):(%d+): remark: (.+)$")
-
-  if not file then
-    return nil
-  end
-
-  -- Extract category from tag at end: [-Rpass=...], [-Rpass-missed=...], [-Rpass-analysis=...]
-  local category = "pass"  -- default
-  local message = msg_and_tag
-
-  if msg_and_tag:match("%[%-Rpass%-missed") then
-    category = "missed"
-    -- Remove tag from message
-    message = msg_and_tag:match("(.-)%s*%[%-Rpass%-missed")  or msg_and_tag
-  elseif msg_and_tag:match("%[%-Rpass%-analysis") then
-    category = "analysis"
-    message = msg_and_tag:match("(.-)%s*%[%-Rpass%-analysis") or msg_and_tag
-  elseif msg_and_tag:match("%[%-Rpass") then
-    category = "pass"
-    message = msg_and_tag:match("(.-)%s*%[%-Rpass") or msg_and_tag
-  end
-
-  return {
-    category = category,
-    message = message,
-    location = {
-      file = file,
-      line = tonumber(line_num),
-      column = tonumber(col),
-    },
-  }
-end
+-- Note: Remark parsing is now handled by lua/godbolt/remarks.lua
+-- LLVM outputs remarks in YAML format using -fsave-optimization-record flag
 
 -- Helper: Parse pass header to extract scope information
 -- @param pass_line: line containing pass boundary marker
@@ -202,6 +164,13 @@ end
 run_opt_pipeline_async = function(input_file, passes_str, opts, callback)
   opts = opts or {}
 
+  -- Generate remarks file path if remarks are enabled
+  local remarks_file = nil
+  if opts.remarks then
+    local remarks_mod = require('godbolt.remarks')
+    remarks_file = remarks_mod.get_remarks_file_path(input_file)
+  end
+
   -- Build command parts
   local cmd_parts = {
     "opt",
@@ -211,16 +180,31 @@ run_opt_pipeline_async = function(input_file, passes_str, opts, callback)
   }
 
   -- Add optimization remarks flags if enabled
-  if opts.remarks then
+  -- Use -fsave-optimization-record to output YAML instead of -Rpass (stderr text)
+  if opts.remarks and remarks_file then
     local remarks = opts.remarks
+    local filters = {}
+
+    -- Build filter list based on enabled categories
     if remarks.pass then
-      table.insert(cmd_parts, "-Rpass=" .. remarks.filter)
+      table.insert(filters, "pass")
     end
     if remarks.missed then
-      table.insert(cmd_parts, "-Rpass-missed=" .. remarks.filter)
+      table.insert(filters, "missed")
     end
     if remarks.analysis then
-      table.insert(cmd_parts, "-Rpass-analysis=" .. remarks.filter)
+      table.insert(filters, "analysis")
+    end
+
+    -- Add YAML output flag with filter
+    if #filters > 0 then
+      -- Correct format: specify 'yaml' as format, then file path separately
+      table.insert(cmd_parts, "-fsave-optimization-record=yaml")
+      table.insert(cmd_parts, "-foptimization-record-file=" .. remarks_file)
+      -- Add filter for which passes to report (default: all via .*)
+      if remarks.filter and remarks.filter ~= ".*" then
+        table.insert(cmd_parts, "-foptimization-record-passes=" .. remarks.filter)
+      end
     end
   end
 
@@ -297,6 +281,26 @@ run_opt_pipeline_async = function(input_file, passes_str, opts, callback)
       M.parse_pipeline_output_async(output, nil, function(passes)
         local parse_elapsed = (vim.loop.hrtime() - parse_start) / 1e9
         print(string.format("[" .. get_timestamp() .. "] [Pipeline] ✓ Parsing completed in %.1fs (%d passes)", parse_elapsed, #passes))
+
+        -- Parse remarks YAML if enabled
+        if opts.remarks and remarks_file then
+          local remarks_mod = require('godbolt.remarks')
+          local remarks_by_pass = remarks_mod.parse_remarks_yaml(remarks_file)
+          passes = remarks_mod.attach_remarks_to_passes(passes, remarks_by_pass)
+          remarks_mod.cleanup_remarks_file(remarks_file)
+
+          -- Count total remarks
+          local remark_count = 0
+          for _, pass in ipairs(passes) do
+            if pass.remarks then
+              remark_count = remark_count + #pass.remarks
+            end
+          end
+          if remark_count > 0 then
+            print(string.format("[" .. get_timestamp() .. "] [Pipeline] ✓ Parsed %d optimization remarks", remark_count))
+          end
+        end
+
         callback(passes)
       end)
     end)
@@ -357,6 +361,13 @@ run_clang_pipeline_async = function(input_file, passes_str, lang_args, opts, cal
     return
   end
 
+  -- Generate remarks file path if remarks are enabled
+  local remarks_file = nil
+  if opts.remarks then
+    local remarks_mod = require('godbolt.remarks')
+    remarks_file = remarks_mod.get_remarks_file_path(input_file)
+  end
+
   -- Determine compiler
   local compiler = opts.compiler or (input_file:match("%.cpp$") and "clang++" or "clang")
 
@@ -371,16 +382,16 @@ run_clang_pipeline_async = function(input_file, passes_str, lang_args, opts, cal
   }
 
   -- Add optimization remarks flags if enabled
-  if opts.remarks then
+  -- Use -fsave-optimization-record to output YAML instead of -Rpass (stderr text)
+  if opts.remarks and remarks_file then
     local remarks = opts.remarks
-    if remarks.pass then
-      table.insert(cmd_parts, "-Rpass=" .. remarks.filter)
-    end
-    if remarks.missed then
-      table.insert(cmd_parts, "-Rpass-missed=" .. remarks.filter)
-    end
-    if remarks.analysis then
-      table.insert(cmd_parts, "-Rpass-analysis=" .. remarks.filter)
+    -- Correct format: specify 'yaml' as format, then file path separately
+    table.insert(cmd_parts, "-fsave-optimization-record=yaml")
+    table.insert(cmd_parts, "-foptimization-record-file=" .. remarks_file)
+
+    -- Add filter for which passes to report (default: all via .*)
+    if remarks.filter and remarks.filter ~= ".*" then
+      table.insert(cmd_parts, "-foptimization-record-passes=" .. remarks.filter)
     end
   end
 
@@ -485,6 +496,25 @@ run_clang_pipeline_async = function(input_file, passes_str, lang_args, opts, cal
             file = input_file,
             ir = initial_ir,
           }
+        end
+
+        -- Parse remarks YAML if enabled
+        if opts.remarks and remarks_file then
+          local remarks_mod = require('godbolt.remarks')
+          local remarks_by_pass = remarks_mod.parse_remarks_yaml(remarks_file)
+          passes = remarks_mod.attach_remarks_to_passes(passes, remarks_by_pass)
+          remarks_mod.cleanup_remarks_file(remarks_file)
+
+          -- Count total remarks
+          local remark_count = 0
+          for _, pass in ipairs(passes) do
+            if pass.remarks then
+              remark_count = remark_count + #pass.remarks
+            end
+          end
+          if remark_count > 0 then
+            print(string.format("[" .. get_timestamp() .. "] [Pipeline] ✓ Parsed %d optimization remarks", remark_count))
+          end
         end
 
         callback(passes)
@@ -628,7 +658,6 @@ function M.parse_pipeline_output_async(output, source_type, callback)
   local current_ir = {}
   local current_is_before = false
   local current_before_ir = nil
-  local current_remarks = {}  -- Track remarks for current pass
   local pass_boundary_count = 0
   local seen_module_id = false
 
@@ -697,13 +726,6 @@ function M.parse_pipeline_output_async(output, source_type, callback)
     for line_idx = chunk_start, chunk_end do
       local line = lines[line_idx]
 
-      -- Try to parse as remark first
-      local remark = parse_remark_line(line)
-      if remark then
-        table.insert(current_remarks, remark)
-        goto continue  -- Skip further processing for this line
-      end
-
       local pass_name, scope_type, scope_target, is_before, is_omitted = parse_pass_header(line)
 
       if pass_name then
@@ -727,7 +749,6 @@ function M.parse_pipeline_output_async(output, source_type, callback)
                 scope_target = current_scope_target,
                 ir = current_ir,  -- Raw, not cleaned
                 before_ir = current_before_ir,
-                remarks = current_remarks,  -- Attach remarks
                 cleaned = false,
               })
 
@@ -746,9 +767,6 @@ function M.parse_pipeline_output_async(output, source_type, callback)
             end
           end
         end
-
-        -- Reset remarks for new pass
-        current_remarks = {}
 
         -- Handle omitted passes
         if is_omitted then
@@ -787,7 +805,6 @@ function M.parse_pipeline_output_async(output, source_type, callback)
               scope_type = scope_type,
               scope_target = scope_target,
               ir = copied_ir,
-              remarks = current_remarks,  -- Attach remarks
               changed = false,
             })
           end
@@ -798,7 +815,6 @@ function M.parse_pipeline_output_async(output, source_type, callback)
           current_ir = {}
           current_is_before = false
           seen_module_id = false
-          current_remarks = {}  -- Reset remarks
         else
           -- Start new pass
           if scope_target then
@@ -839,8 +855,6 @@ function M.parse_pipeline_output_async(output, source_type, callback)
           table.insert(current_ir, line)
         end
       end
-
-      ::continue::  -- Label for remark skip
     end
 
     -- Schedule next chunk
