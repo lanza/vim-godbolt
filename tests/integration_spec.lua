@@ -6,7 +6,13 @@ local ir_utils = require('godbolt.ir_utils')
 describe("pipeline integration", function()
   it("full flow: pipeline + viewer with single function", function()
     local test_file = vim.fn.fnamemodify("tests/fixtures/single_func.ll", ":p")
-    local passes = pipeline.run_pipeline(test_file, "sroa")
+    local passes
+
+    pipeline.run_pipeline(test_file, "sroa", {}, function(result)
+      passes = result
+    end)
+
+    vim.wait(5000, function() return passes ~= nil end)
 
     assert.is_not_nil(passes)
     assert.are.equal(1, #passes)
@@ -22,12 +28,18 @@ describe("pipeline integration", function()
 
     -- Clean up
     pcall(pipeline_viewer.cleanup)
-    pcall(vim.api.nvim_buf_delete, source_bufnr, {force = true})
+    pcall(vim.api.nvim_buf_delete, source_bufnr, { force = true })
   end)
 
   it("full flow: pipeline + viewer with two functions", function()
     local test_file = vim.fn.fnamemodify("tests/fixtures/two_funcs.ll", ":p")
-    local passes = pipeline.run_pipeline(test_file, "sroa,instcombine")
+    local passes
+
+    pipeline.run_pipeline(test_file, "sroa,instcombine", {}, function(result)
+      passes = result
+    end)
+
+    vim.wait(5000, function() return passes ~= nil end)
 
     assert.is_not_nil(passes)
     assert.are.equal(4, #passes)
@@ -46,11 +58,11 @@ describe("pipeline integration", function()
 
     -- Clean up
     pcall(pipeline_viewer.cleanup)
-    pcall(vim.api.nvim_buf_delete, source_bufnr, {force = true})
+    pcall(vim.api.nvim_buf_delete, source_bufnr, { force = true })
   end)
 
   it("handles nil input_file gracefully", function()
-    local passes = {{name = "TestPass on foo", ir = {"define i32 @foo() { ret i32 0 }"}}}
+    local passes = { { name = "TestPass on foo", ir = { "define i32 @foo() { ret i32 0 }" } } }
     local source_bufnr = vim.api.nvim_create_buf(false, true)
 
     -- Should not crash even with nil input_file
@@ -62,7 +74,7 @@ describe("pipeline integration", function()
 
     -- Clean up
     pcall(pipeline_viewer.cleanup)
-    pcall(vim.api.nvim_buf_delete, source_bufnr, {force = true})
+    pcall(vim.api.nvim_buf_delete, source_bufnr, { force = true })
   end)
 
   it("strips all bottom matter from extracted functions", function()

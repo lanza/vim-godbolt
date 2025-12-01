@@ -4,12 +4,13 @@ local M = {}
 -- @param ir_lines: array of LLVM IR lines
 -- @return: table mapping file metadata IDs to {filename, directory}
 function M.parse_di_files(ir_lines)
-  local file_map = {}  -- !1 -> {filename="main.c", directory="/path"}
+  local file_map = {} -- !1 -> {filename="main.c", directory="/path"}
 
   for _, line in ipairs(ir_lines) do
     -- Parse: !5 = !DIFile(filename: "utils.c", directory: "/path", checksumkind: CSK_MD5, checksum: "...")
     -- Note: checksumkind and checksum are optional, so just match filename and directory
-    local id, filename, directory = line:match('^(![0-9]+)%s*=%s*!DIFile%(filename:%s*"([^"]+)",%s*directory:%s*"([^"]*)"')
+    local id, filename, directory = line:match(
+      '^(![0-9]+)%s*=%s*!DIFile%(filename:%s*"([^"]+)",%s*directory:%s*"([^"]*)"')
 
     if id and filename then
       file_map[id] = {
@@ -27,7 +28,7 @@ end
 -- @param file_map: table from parse_di_files
 -- @return: table mapping function names to source file info
 function M.parse_function_sources(ir_lines, file_map)
-  local func_sources = {}  -- "main" -> {filename="main.c", directory="/path"}
+  local func_sources = {} -- "main" -> {filename="main.c", directory="/path"}
   local current_func = nil
 
   for _, line in ipairs(ir_lines) do
@@ -40,7 +41,7 @@ function M.parse_function_sources(ir_lines, file_map)
       current_func = func_name
       -- We'll need to look up this dbg_ref in DISubprogram metadata
       -- For now, store the reference
-      func_sources[func_name] = {dbg_ref = dbg_ref}
+      func_sources[func_name] = { dbg_ref = dbg_ref }
     end
   end
 
@@ -48,7 +49,8 @@ function M.parse_function_sources(ir_lines, file_map)
   for _, line in ipairs(ir_lines) do
     -- Parse: !10 = distinct !DISubprogram(name: "main", ... file: !1, ...)
     -- Note: "distinct" is a keyword that comes before !DISubprogram
-    local id, name, file_ref = line:match('^(![0-9]+)%s*=%s*distinct%s+!DISubprogram%(name:%s*"([^"]+)".*file:%s*(![0-9]+)')
+    local id, name, file_ref = line:match(
+      '^(![0-9]+)%s*=%s*distinct%s+!DISubprogram%(name:%s*"([^"]+)".*file:%s*(![0-9]+)')
 
     if id and name and file_ref and file_map[file_ref] then
       -- Find function with this dbg_ref
@@ -79,12 +81,12 @@ function M.detect_cross_module_inlining(before_ir, after_ir, func_sources)
     cross_module_calls_before = 0,
     cross_module_calls_after = 0,
     inlined_count = 0,
-    inlines_by_file = {},  -- {main.c -> {count=5, targets=["utils.c", ...]}}
+    inlines_by_file = {}, -- {main.c -> {count=5, targets=["utils.c", ...]}}
   }
 
   -- Helper to extract call sites from IR
   local function extract_calls(ir_lines)
-    local calls = {}  -- {caller -> {callee, is_cross_module}}
+    local calls = {} -- {caller -> {callee, is_cross_module}}
     local current_func = nil
     local current_file = nil
 
@@ -153,7 +155,7 @@ function M.detect_cross_module_inlining(before_ir, after_ir, func_sources)
       if not after_set[key] then
         -- This cross-module call was inlined!
         if not stats.inlines_by_file[call.caller_file] then
-          stats.inlines_by_file[call.caller_file] = {count = 0, targets = {}}
+          stats.inlines_by_file[call.caller_file] = { count = 0, targets = {} }
         end
 
         stats.inlines_by_file[call.caller_file].count = stats.inlines_by_file[call.caller_file].count + 1
@@ -176,7 +178,7 @@ end
 function M.track_dead_code_elimination(before_ir, after_ir, func_sources)
   local stats = {
     functions_removed = 0,
-    functions_by_file = {},  -- {main.c -> {removed=["foo", "bar"], kept=["main"]}}
+    functions_by_file = {}, -- {main.c -> {removed=["foo", "bar"], kept=["main"]}}
   }
 
   -- Extract function names from IR
@@ -207,14 +209,14 @@ function M.track_dead_code_elimination(before_ir, after_ir, func_sources)
 
       local file = func_sources[func] and func_sources[func].filename or "unknown"
       if not stats.functions_by_file[file] then
-        stats.functions_by_file[file] = {removed = {}, kept = {}}
+        stats.functions_by_file[file] = { removed = {}, kept = {} }
       end
 
       table.insert(stats.functions_by_file[file].removed, func)
     else
       local file = func_sources[func] and func_sources[func].filename or "unknown"
       if not stats.functions_by_file[file] then
-        stats.functions_by_file[file] = {removed = {}, kept = {}}
+        stats.functions_by_file[file] = { removed = {}, kept = {} }
       end
 
       table.insert(stats.functions_by_file[file].kept, func)

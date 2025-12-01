@@ -12,22 +12,22 @@ function M.setup()
   if bg == "dark" then
     -- Lighter grays for dark backgrounds (more visible)
     -- These are full-line background colors
-    vim.api.nvim_set_hl(0, "GodboltLevel1", {bg = "#404040"})
-    vim.api.nvim_set_hl(0, "GodboltLevel2", {bg = "#383838"})
-    vim.api.nvim_set_hl(0, "GodboltLevel3", {bg = "#303030"})
-    vim.api.nvim_set_hl(0, "GodboltLevel4", {bg = "#282828"})
-    vim.api.nvim_set_hl(0, "GodboltLevel5", {bg = "#242424"})
+    vim.api.nvim_set_hl(0, "GodboltLevel1", { bg = "#404040" })
+    vim.api.nvim_set_hl(0, "GodboltLevel2", { bg = "#383838" })
+    vim.api.nvim_set_hl(0, "GodboltLevel3", { bg = "#303030" })
+    vim.api.nvim_set_hl(0, "GodboltLevel4", { bg = "#282828" })
+    vim.api.nvim_set_hl(0, "GodboltLevel5", { bg = "#242424" })
   else
     -- Darker grays for light backgrounds
-    vim.api.nvim_set_hl(0, "GodboltLevel1", {bg = "#d0d0d0"})
-    vim.api.nvim_set_hl(0, "GodboltLevel2", {bg = "#d8d8d8"})
-    vim.api.nvim_set_hl(0, "GodboltLevel3", {bg = "#e0e0e0"})
-    vim.api.nvim_set_hl(0, "GodboltLevel4", {bg = "#e8e8e8"})
-    vim.api.nvim_set_hl(0, "GodboltLevel5", {bg = "#f0f0f0"})
+    vim.api.nvim_set_hl(0, "GodboltLevel1", { bg = "#d0d0d0" })
+    vim.api.nvim_set_hl(0, "GodboltLevel2", { bg = "#d8d8d8" })
+    vim.api.nvim_set_hl(0, "GodboltLevel3", { bg = "#e0e0e0" })
+    vim.api.nvim_set_hl(0, "GodboltLevel4", { bg = "#e8e8e8" })
+    vim.api.nvim_set_hl(0, "GodboltLevel5", { bg = "#f0f0f0" })
   end
 
   -- Cursor highlight - link to Visual for visibility
-  vim.api.nvim_set_hl(0, "GodboltCursor", {link = "Visual"})
+  vim.api.nvim_set_hl(0, "GodboltCursor", { link = "Visual" })
 end
 
 -- Get shade name based on index (cycles through levels)
@@ -56,9 +56,9 @@ function M.highlight_lines_static(bufnr, lines)
         bufnr,
         M.ns_static,
         shade,
-        line_num - 1,  -- Convert to 0-indexed
-        0,             -- Start of line
-        -1             -- End of line
+        line_num - 1, -- Convert to 0-indexed
+        0,            -- Start of line
+        -1            -- End of line
       )
     end
   end
@@ -80,9 +80,9 @@ function M.highlight_lines_cursor(bufnr, lines)
         bufnr,
         M.ns_cursor,
         "GodboltCursor",
-        line_num - 1,  -- Convert to 0-indexed
-        0,             -- Start of line
-        -1             -- End of line
+        line_num - 1, -- Convert to 0-indexed
+        0,            -- Start of line
+        -1            -- End of line
       )
     end
   end
@@ -101,11 +101,11 @@ function M.highlight_column_cursor(bufnr, line_num, col_num, width)
 
   if not line_num or line_num < 1 or not col_num or col_num < 1 then
     -- Fall back to line highlighting if invalid
-    M.highlight_lines_cursor(bufnr, {line_num})
+    M.highlight_lines_cursor(bufnr, { line_num })
     return
   end
 
-  width = width or 1  -- Highlight just the starting character by default
+  width = width or 1 -- Highlight just the starting character by default
 
   -- Highlight the column range
   -- NOTE: nvim_buf_add_highlight uses 0-indexed positions with EXCLUSIVE end
@@ -116,8 +116,8 @@ function M.highlight_column_cursor(bufnr, line_num, col_num, width)
     bufnr,
     M.ns_cursor,
     "GodboltCursor",
-    line_num - 1,       -- Convert to 0-indexed
-    col_num - 1,        -- Convert to 0-indexed start position
+    line_num - 1,                       -- Convert to 0-indexed
+    col_num - 1,                        -- Convert to 0-indexed start position
     math.min(col_num - 1 + width, 9999) -- End position (exclusive), clamped
   )
 end
@@ -139,7 +139,7 @@ function M.get_highlighted_lines(bufnr, namespace)
 
   local lines = {}
   for _, mark in ipairs(extmarks) do
-    local line = mark[2]  -- Second element is line number
+    local line = mark[2] -- Second element is line number
     table.insert(lines, line)
   end
 

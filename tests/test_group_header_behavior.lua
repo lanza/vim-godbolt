@@ -13,11 +13,11 @@ local group_header_specs = {
     description = "When cursor is on a FOLDED group header, before/after buffers should be CLEARED",
     setup = {
       passes = {
-        {line = 1, type = "module", text = " 1. [M] ModulePass1"},
-        {line = 2, type = "group_header", text = " 2. ▸ [F] InstCombinePass (983 functions)", folded = true},
-        {line = 3, type = "module", text = " 3. [M] ModulePass2"},
+        { line = 1, type = "module", text = " 1. [M] ModulePass1" },
+        { line = 2, type = "group_header", text = " 2. ▸ [F] InstCombinePass (983 functions)", folded = true },
+        { line = 3, type = "module", text = " 3. [M] ModulePass2" },
       },
-      cursor_line = 2,  -- On folded group header
+      cursor_line = 2, -- On folded group header
       current_index = 2,
     },
     action = "Navigate to line 2 (folded group header)",
@@ -35,13 +35,13 @@ local group_header_specs = {
     description = "When cursor is on an UNFOLDED group header, before/after buffers should be CLEARED",
     setup = {
       passes = {
-        {line = 1, type = "module", text = " 1. [M] ModulePass1"},
-        {line = 2, type = "group_header", text = " 2. ▾ [F] InstCombinePass (983 functions)", folded = false},
-        {line = 3, type = "function_entry", text = "         foo"},
-        {line = 4, type = "function_entry", text = "         bar"},
+        { line = 1, type = "module", text = " 1. [M] ModulePass1" },
+        { line = 2, type = "group_header", text = " 2. ▾ [F] InstCombinePass (983 functions)", folded = false },
+        { line = 3, type = "function_entry", text = "         foo" },
+        { line = 4, type = "function_entry", text = "         bar" },
         -- ... 981 more functions ...
       },
-      cursor_line = 2,  -- On unfolded group header
+      cursor_line = 2, -- On unfolded group header
       current_index = 2,
     },
     action = "Navigate to line 2 (unfolded group header)",
@@ -60,11 +60,11 @@ local group_header_specs = {
     description = "After unfolding, moving cursor to function entry SHOULD show IR",
     setup = {
       passes = {
-        {line = 1, type = "group_header", text = " 2. ▾ [F] InstCombinePass (983 functions)", folded = false},
-        {line = 2, type = "function_entry", text = "     ●   foo", original_index = 100},
-        {line = 3, type = "function_entry", text = "         bar", original_index = 101},
+        { line = 1, type = "group_header", text = " 2. ▾ [F] InstCombinePass (983 functions)", folded = false },
+        { line = 2, type = "function_entry", text = "     ●   foo", original_index = 100 },
+        { line = 3, type = "function_entry", text = "         bar", original_index = 101 },
       },
-      cursor_line = 2,  -- On function entry 'foo'
+      cursor_line = 2, -- On function entry 'foo'
       current_index = 100,
     },
     action = "Navigate to line 2 (function entry 'foo')",
@@ -80,7 +80,7 @@ local group_header_specs = {
     description = "Pressing Enter on group header should toggle fold state",
     setup = {
       passes = {
-        {line = 1, type = "group_header", text = " 5. ▸ [F] SimplifyCFGPass (1004 functions)", folded = true},
+        { line = 1, type = "group_header", text = " 5. ▸ [F] SimplifyCFGPass (1004 functions)", folded = true },
       },
       cursor_line = 1,
     },
@@ -97,13 +97,13 @@ local group_header_specs = {
     name = "Group header identification logic",
     description = "Code should correctly identify group headers vs function entries",
     test_patterns = {
-      {text = " 5. ▸ [F] InstCombinePass (983 functions)", is_group_header = true, folded = true},
-      {text = " 5. ▾ [F] InstCombinePass (983 functions)", is_group_header = true, folded = false},
-      {text = " 5. ▸ [C] CGSCCPass (50 functions)", is_group_header = true, folded = true},
-      {text = "         foo", is_group_header = false},
-      {text = "     ●   bar", is_group_header = false},
-      {text = "     >   baz", is_group_header = false},
-      {text = " 1. [M] ModulePass", is_group_header = false},  -- Module pass, not group
+      { text = " 5. ▸ [F] InstCombinePass (983 functions)", is_group_header = true, folded = true },
+      { text = " 5. ▾ [F] InstCombinePass (983 functions)", is_group_header = true, folded = false },
+      { text = " 5. ▸ [C] CGSCCPass (50 functions)", is_group_header = true, folded = true },
+      { text = "         foo", is_group_header = false },
+      { text = "     ●   bar", is_group_header = false },
+      { text = "     >   baz", is_group_header = false },
+      { text = " 1. [M] ModulePass", is_group_header = false }, -- Module pass, not group
     },
     expected = {
       "Patterns with ▸ or ▾ followed by [F] or [C] are group headers",

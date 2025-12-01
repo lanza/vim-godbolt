@@ -13,11 +13,11 @@ describe("compile_commands", function()
         },
         {
           directory = "/path/to/project",
-          arguments = {"clang", "-c", "-o", "utils.o", "utils.c", "-O2"},
+          arguments = { "clang", "-c", "-o", "utils.o", "utils.c", "-O2" },
           file = "utils.c"
         }
       })
-      vim.fn.writefile({content}, temp_file)
+      vim.fn.writefile({ content }, temp_file)
 
       local success, data = compile_commands.parse_compile_commands(temp_file)
 
@@ -39,7 +39,7 @@ describe("compile_commands", function()
 
     it("should fail on invalid JSON", function()
       local temp_file = vim.fn.tempname() .. ".json"
-      vim.fn.writefile({"not valid json {"}, temp_file)
+      vim.fn.writefile({ "not valid json {" }, temp_file)
 
       local success, err = compile_commands.parse_compile_commands(temp_file)
 
@@ -73,7 +73,7 @@ describe("compile_commands", function()
 
     it("should return nil for non-existent file", function()
       local data = {
-        {directory = "/project", file = "main.c", command = "clang -c main.c"}
+        { directory = "/project", file = "main.c", command = "clang -c main.c" }
       }
 
       local entry = compile_commands.find_file_entry(data, "/nonexistent.c")
@@ -103,7 +103,7 @@ describe("compile_commands", function()
       local entry = {
         directory = "/project",
         file = "main.c",
-        arguments = {"clang++", "-c", "-O3", "-std=c++20", "main.cpp", "-o", "main.o"}
+        arguments = { "clang++", "-c", "-O3", "-std=c++20", "main.cpp", "-o", "main.o" }
       }
 
       local result = compile_commands.parse_entry(entry)
@@ -132,9 +132,9 @@ describe("compile_commands", function()
   describe("get_all_source_files", function()
     it("should extract all source files", function()
       local data = {
-        {directory = "/project", file = "main.c", command = "clang -c main.c"},
-        {directory = "/project", file = "utils.c", command = "clang -c utils.c"},
-        {directory = "/project", file = "helpers.c", command = "clang -c helpers.c"}
+        { directory = "/project", file = "main.c",    command = "clang -c main.c" },
+        { directory = "/project", file = "utils.c",   command = "clang -c utils.c" },
+        { directory = "/project", file = "helpers.c", command = "clang -c helpers.c" }
       }
 
       local files = compile_commands.get_all_source_files(data)
@@ -151,7 +151,7 @@ describe("compile_commands", function()
 
   describe("filter_relevant_flags", function()
     it("should keep optimization and standard flags", function()
-      local args = {"-c", "-O2", "-std=c++20", "-o", "main.o", "main.cpp"}
+      local args = { "-c", "-O2", "-std=c++20", "-o", "main.o", "main.cpp" }
 
       local filtered = compile_commands.filter_relevant_flags(args)
 
@@ -164,7 +164,7 @@ describe("compile_commands", function()
     end)
 
     it("should keep include paths and defines", function()
-      local args = {"-I/usr/include", "-DFOO=bar", "-L/usr/lib", "-lpthread"}
+      local args = { "-I/usr/include", "-DFOO=bar", "-L/usr/lib", "-lpthread" }
 
       local filtered = compile_commands.filter_relevant_flags(args)
 
@@ -175,7 +175,7 @@ describe("compile_commands", function()
     end)
 
     it("should remove linking flags", function()
-      local args = {"-O2", "-lm", "-lpthread", "-L/usr/local/lib", "-std=c17"}
+      local args = { "-O2", "-lm", "-lpthread", "-L/usr/local/lib", "-std=c17" }
 
       local filtered = compile_commands.filter_relevant_flags(args)
 

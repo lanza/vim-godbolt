@@ -90,21 +90,21 @@ M.config = {
   -- Line mapping configuration
   line_mapping = {
     enabled = true,
-    auto_scroll = true,             -- Auto-scroll to mapped lines when cursor moves
+    auto_scroll = true,          -- Auto-scroll to mapped lines when cursor moves
     throttle_ms = 150,
-    silent_on_failure = false,      -- Show error messages if debug info missing
-    show_compilation_cmd = true,    -- Show compilation command when debug info fails
+    silent_on_failure = false,   -- Show error messages if debug info missing
+    show_compilation_cmd = true, -- Show compilation command when debug info fails
   },
 
   -- Display configuration
   display = {
-    strip_debug_metadata = true,    -- Hide debug metadata (!123 = !{...}) in LLVM IR display
+    strip_debug_metadata = true, -- Hide debug metadata (!123 = !{...}) in LLVM IR display
   },
 
   -- Pipeline configuration
   pipeline = {
     enabled = true,
-    show_stats = false,            -- Disable stats logging by default (prints to messages, causes line wrapping)
+    show_stats = false, -- Disable stats logging by default (prints to messages, causes line wrapping)
     start_at_final = true,
     filter_unchanged = false,
 
@@ -117,10 +117,10 @@ M.config = {
 
       -- Inline hints (virtual text) configuration
       inline_hints = {
-        enabled = true,           -- Show remarks as inline hints by default
+        enabled = true,   -- Show remarks as inline hints by default
         -- Format: "icon", "short", "detailed"
-        format = "short",         -- How much detail to show inline
-        position = "eol",         -- "eol" (end of line) or "right_align"
+        format = "short", -- How much detail to show inline
+        position = "eol", -- "eol" (end of line) or "right_align"
       },
     },
 
@@ -142,8 +142,8 @@ M.config = {
 
       -- Show remarks popup
       show_remarks = { 'R', 'gr' },
-      show_all_remarks = 'gR',  -- Show remarks from ALL passes
-      toggle_inline_hints = 'gh',  -- Toggle inline hints on/off
+      show_all_remarks = 'gR',    -- Show remarks from ALL passes
+      toggle_inline_hints = 'gh', -- Toggle inline hints on/off
 
       -- Show help menu
       show_help = 'g?',
@@ -156,11 +156,11 @@ M.config = {
   -- LTO (Link-Time Optimization) configuration
   lto = {
     enabled = true,
-    linker = "ld.lld",              -- Linker to use (ld.lld, lld, etc.)
-    keep_temps = false,             -- Keep temporary object files
-    save_temps = true,              -- Use -save-temps to preserve intermediate files
-    project_auto_detect = true,     -- Auto-detect project files
-    compile_commands_path = "compile_commands.json",  -- Path to compile_commands.json
+    linker = "ld.lld",                               -- Linker to use (ld.lld, lld, etc.)
+    keep_temps = false,                              -- Keep temporary object files
+    save_temps = true,                               -- Use -save-temps to preserve intermediate files
+    project_auto_detect = true,                      -- Auto-detect project files
+    compile_commands_path = "compile_commands.json", -- Path to compile_commands.json
   },
 }
 
@@ -226,7 +226,7 @@ local function set_output_filetype(output_type)
   if output_type == "llvm" then
     vim.bo.filetype = "llvm"
   elseif output_type == "cir" then
-    vim.bo.filetype = "mlir"  -- ClangIR uses MLIR syntax
+    vim.bo.filetype = "mlir" -- ClangIR uses MLIR syntax
   elseif output_type == "ast" then
     vim.bo.filetype = "text"
   elseif output_type == "objdump" then
@@ -248,7 +248,8 @@ local function verify_debug_info(output_lines, output_type)
         return true, nil
       end
     end
-    return false, "LLVM IR output contains no debug metadata (!DILocation or !dbg). This usually means debug info was stripped or not generated."
+    return false,
+        "LLVM IR output contains no debug metadata (!DILocation or !dbg). This usually means debug info was stripped or not generated."
   elseif output_type == "asm" then
     -- For assembly, look for .loc or .file directives
     for _, line in ipairs(output_lines) do
@@ -256,10 +257,11 @@ local function verify_debug_info(output_lines, output_type)
         return true, nil
       end
     end
-    return false, "Assembly output contains no debug directives (.loc or .file). Assembly line mapping is a work in progress."
+    return false,
+        "Assembly output contains no debug directives (.loc or .file). Assembly line mapping is a work in progress."
   end
 
-  return true, nil  -- For other types, assume OK
+  return true, nil -- For other types, assume OK
 end
 
 -- Check if args contain debug-disabling flags
@@ -268,7 +270,7 @@ end
 local function has_debug_disabling_flags(args)
   -- Check for flags that explicitly disable debug info
   return args:match("%-g0%s") or args:match("%-g0$") or
-         args:match("%-ggdb0%s") or args:match("%-ggdb0$")
+      args:match("%-ggdb0%s") or args:match("%-ggdb0$")
 end
 
 -- Main godbolt function
@@ -280,10 +282,10 @@ function M.godbolt(args_str, opts)
   opts = opts or {}
   local output_preference = opts.output or "auto"
 
-  local file = vim.fn.expand("%:p")  -- Get absolute path
+  local file = vim.fn.expand("%:p") -- Get absolute path
   local source_bufnr = vim.fn.bufnr("%")
-  local compile_directory = nil  -- Working directory from compile_commands.json
-  local cc_compiler = nil  -- Compiler from compile_commands.json
+  local compile_directory = nil     -- Working directory from compile_commands.json
+  local cc_compiler = nil           -- Compiler from compile_commands.json
 
   -- Try to get compiler flags from compile_commands.json if no args provided
   if args_str == "" or args_str == "-g" then
@@ -320,9 +322,9 @@ function M.godbolt(args_str, opts)
               if output_preference ~= "auto" then
                 -- Check if user has explicitly specified output format in args
                 local has_explicit_output = args_str:match("-emit%-") or
-                                           args_str:match("^%-S%s") or
-                                           args_str:match("%s%-S%s") or
-                                           args_str:match("%s%-S$")
+                    args_str:match("^%-S%s") or
+                    args_str:match("%s%-S%s") or
+                    args_str:match("%s%-S$")
 
                 if not has_explicit_output then
                   if output_preference == "llvm" then
@@ -363,7 +365,7 @@ function M.godbolt(args_str, opts)
   if cc_compiler then
     -- Use compiler from compile_commands.json
     compiler = cc_compiler
-    lang_args = ""  -- compile_commands.json already includes language args
+    lang_args = "" -- compile_commands.json already includes language args
   elseif file:match("%.cpp$") then
     compiler = M.config.clang .. "++"
     lang_args = M.config.cpp_args
@@ -384,7 +386,7 @@ function M.godbolt(args_str, opts)
   end
 
   -- Combine ALL arguments for output type detection
-  local all_args = table.concat({args_str, buffer_args, lang_args}, " ")
+  local all_args = table.concat({ args_str, buffer_args, lang_args }, " ")
   local output_type = detect_output_type(all_args, file)
 
   -- Build command arguments
@@ -396,8 +398,8 @@ function M.godbolt(args_str, opts)
   -- Add compiler-specific flags for better introspection
   if not file:match("%.ll$") and not file:match("%.swift$") then
     table.insert(cmd_args, "-fno-asynchronous-unwind-tables")
-    table.insert(cmd_args, "-fno-discard-value-names")  -- Keep SSA value names
-    table.insert(cmd_args, "-fstandalone-debug")        -- Complete debug info
+    table.insert(cmd_args, "-fno-discard-value-names") -- Keep SSA value names
+    table.insert(cmd_args, "-fstandalone-debug")       -- Complete debug info
   end
 
   if file:match("%.swift$") then
@@ -410,7 +412,7 @@ function M.godbolt(args_str, opts)
   if buffer_args ~= "" then table.insert(cmd_args, buffer_args) end
 
   -- Check if user has explicitly disabled debug info
-  local all_user_args = table.concat({args_str, buffer_args, lang_args}, " ")
+  local all_user_args = table.concat({ args_str, buffer_args, lang_args }, " ")
   if has_debug_disabling_flags(all_user_args) then
     print("[Godbolt] Warning: Debug-disabling flags detected (-g0). Line mapping may not work.")
   end
@@ -538,13 +540,12 @@ function M.godbolt(args_str, opts)
 
   -- Trigger autocommand event
   vim.cmd("doautocmd User Godbolt")
-
 end
 
 -- Run LLVM optimization pipeline and show passes
 function M.godbolt_pipeline(args_str)
   args_str = args_str or ""
-  local file = vim.fn.expand("%:p")  -- Get absolute path
+  local file = vim.fn.expand("%:p") -- Get absolute path
   local source_bufnr = vim.fn.bufnr("%")
   local compile_directory = nil
   local cc_compiler = nil
@@ -576,8 +577,10 @@ function M.godbolt_pipeline(args_str)
             local relevant_flags = compile_commands.filter_relevant_flags(parsed.args)
             if #relevant_flags > 0 then
               cc_flags = table.concat(relevant_flags, " ")
-              print(string.format("[" .. get_timestamp() .. "] [Pipeline] Using compiler from compile_commands.json: %s", cc_compiler))
-              print(string.format("[" .. get_timestamp() .. "] [Pipeline] Using flags from compile_commands.json: %s", cc_flags))
+              print(string.format("[" .. get_timestamp() .. "] [Pipeline] Using compiler from compile_commands.json: %s",
+                cc_compiler))
+              print(string.format("[" .. get_timestamp() .. "] [Pipeline] Using flags from compile_commands.json: %s",
+                cc_flags))
               print(string.format("[" .. get_timestamp() .. "] [Pipeline] Working directory: %s", compile_directory))
             end
           end
@@ -599,7 +602,8 @@ function M.godbolt_pipeline(args_str)
     local all_args = (cc_flags or "") .. " " .. args_str .. " " .. buffer_args
     if all_args:match("-flto") or all_args:match("-flink%-time%-optimization") then
       print("[" .. get_timestamp() .. "] [Pipeline] ERROR: LTO flags detected (-flto, -flto=thin)")
-      print("[" .. get_timestamp() .. "] [Pipeline] LTO defers optimization to link-time, so compilation passes are minimal")
+      print("[" ..
+        get_timestamp() .. "] [Pipeline] LTO defers optimization to link-time, so compilation passes are minimal")
       print("[" .. get_timestamp() .. "] [Pipeline] Remove LTO flags to see optimization passes")
       print("[" .. get_timestamp() .. "] [Pipeline] Use optimization levels instead: :GodboltPipeline O2")
       return
@@ -687,7 +691,7 @@ function M.godbolt_pipeline(args_str)
     compiler = cc_compiler,
     flags = cc_flags,
     working_dir = compile_directory,
-    remarks = M.config.pipeline.remarks,  -- Pass remarks config
+    remarks = M.config.pipeline.remarks, -- Pass remarks config
   }
 
   pipeline.run_pipeline(file, passes_to_run, pipeline_opts, function(passes)
@@ -747,12 +751,14 @@ function M.godbolt_pipeline(args_str)
       })
 
       local setup_start = vim.loop.hrtime()
-      print(string.format("[" .. get_timestamp() .. "] [Pipeline] [CALLBACK +%.3fs] Calling pipeline_viewer.setup", (setup_start - callback_time) / 1e9))
+      print(string.format("[" .. get_timestamp() .. "] [Pipeline] [CALLBACK +%.3fs] Calling pipeline_viewer.setup",
+        (setup_start - callback_time) / 1e9))
 
       pipeline_viewer.setup(source_bufnr, file, passes, viewer_config)
 
       local setup_end = vim.loop.hrtime()
-      print(string.format("[" .. get_timestamp() .. "] [Pipeline] [CALLBACK +%.3fs] setup() returned", (setup_end - callback_time) / 1e9))
+      print(string.format("[" .. get_timestamp() .. "] [Pipeline] [CALLBACK +%.3fs] setup() returned",
+        (setup_end - callback_time) / 1e9))
     else
       print("[" .. get_timestamp() .. "] [Pipeline] Failed to load pipeline viewer")
     end
@@ -845,7 +851,7 @@ function M.godbolt_lto(file_list, args_str, opts)
 
   -- Prepare configuration
   local lto_config = {
-    compiler = nil,  -- Auto-detect from file extension
+    compiler = nil, -- Auto-detect from file extension
     linker = M.config.lto.linker,
     extra_args = args_str,
     keep_temps = M.config.lto.keep_temps,
@@ -856,7 +862,7 @@ function M.godbolt_lto(file_list, args_str, opts)
 
   if not success then
     print("[LTO] Compilation/linking failed:")
-    print(ir_lines)  -- ir_lines contains error message
+    print(ir_lines) -- ir_lines contains error message
     if temp_dir then
       lto.cleanup(temp_dir)
     end

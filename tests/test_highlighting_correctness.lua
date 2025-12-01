@@ -16,9 +16,9 @@ local highlighting_specs = {
         type = "function_group",
         pass_name = "InstCombinePass",
         functions = {
-          {name = "foo", original_index = 100, changed = true},
-          {name = "bar", original_index = 101, changed = true},
-          {name = "baz", original_index = 102, changed = true},
+          { name = "foo", original_index = 100, changed = true },
+          { name = "bar", original_index = 101, changed = true },
+          { name = "baz", original_index = 102, changed = true },
         },
       },
     },
@@ -38,9 +38,9 @@ local highlighting_specs = {
         type = "function_group",
         pass_name = "SROAPass",
         functions = {
-          {name = "foo", original_index = 200, changed = true},
-          {name = "bar", original_index = 201, changed = false},
-          {name = "baz", original_index = 202, changed = true},
+          { name = "foo", original_index = 200, changed = true },
+          { name = "bar", original_index = 201, changed = false },
+          { name = "baz", original_index = 202, changed = true },
         },
       },
     },
@@ -59,8 +59,8 @@ local highlighting_specs = {
         type = "function_group",
         pass_name = "NoOpPass",
         functions = {
-          {name = "foo", original_index = 300, changed = false},
-          {name = "bar", original_index = 301, changed = false},
+          { name = "foo", original_index = 300, changed = false },
+          { name = "bar", original_index = 301, changed = false },
         },
       },
     },
@@ -77,24 +77,24 @@ local highlighting_specs = {
     test_cases = {
       {
         pass_name = "InstCombinePass on foo",
-        before_ir = {"define i32 @foo() {", "  ret i32 0", "}"},
-        after_ir = {"define i32 @foo() {", "  ret i32 1", "}"},  -- Changed: 0 → 1
+        before_ir = { "define i32 @foo() {", "  ret i32 0", "}" },
+        after_ir = { "define i32 @foo() {", "  ret i32 1", "}" }, -- Changed: 0 → 1
         expected_changed = true,
         expected_lines_changed = 1,
       },
       {
         pass_name = "NoOpPass on bar",
-        before_ir = {"define i32 @bar() {", "  ret i32 42", "}"},
-        after_ir = {"define i32 @bar() {", "  ret i32 42", "}"},  -- Identical
+        before_ir = { "define i32 @bar() {", "  ret i32 42", "}" },
+        after_ir = { "define i32 @bar() {", "  ret i32 42", "}" }, -- Identical
         expected_changed = false,
         expected_lines_changed = 0,
       },
       {
         pass_name = "InlinePass on baz",
-        before_ir = {"define i32 @baz() {", "  %x = call i32 @helper()", "  ret i32 %x", "}"},
-        after_ir = {"define i32 @baz() {", "  ret i32 42", "}"},  -- Inlined: 3 → 2 lines
+        before_ir = { "define i32 @baz() {", "  %x = call i32 @helper()", "  ret i32 %x", "}" },
+        after_ir = { "define i32 @baz() {", "  ret i32 42", "}" }, -- Inlined: 3 → 2 lines
         expected_changed = true,
-        expected_lines_changed = 2,  -- Size differs + content differs
+        expected_lines_changed = 2,                                -- Size differs + content differs
       },
     },
     computation_steps = {

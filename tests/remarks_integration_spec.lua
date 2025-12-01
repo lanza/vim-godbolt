@@ -5,7 +5,6 @@ local pipeline_viewer = require('godbolt.pipeline_viewer')
 local godbolt = require('godbolt')
 
 describe("Remarks Integration", function()
-
   describe("End-to-end YAML parsing", function()
     it("parses comprehensive remarks file and attaches to passes", function()
       -- Parse the YAML file
@@ -83,7 +82,8 @@ describe("Remarks Integration", function()
 
     it("all remarks popup function exists and is callable", function()
       assert.is_not_nil(pipeline_viewer.show_all_remarks_popup, "show_all_remarks_popup should exist")
-      assert.are.equal("function", type(pipeline_viewer.show_all_remarks_popup), "show_all_remarks_popup should be a function")
+      assert.are.equal("function", type(pipeline_viewer.show_all_remarks_popup),
+        "show_all_remarks_popup should be a function")
 
       local ok = pcall(pipeline_viewer.show_all_remarks_popup)
       assert.are.equal("boolean", type(ok), "Should return boolean from pcall")
@@ -208,7 +208,7 @@ describe("Remarks Integration", function()
     it("cleanup deletes existing files", function()
       -- Create a temp file
       local temp_file = vim.fn.tempname() .. ".yaml"
-      vim.fn.writefile({"test"}, temp_file)
+      vim.fn.writefile({ "test" }, temp_file)
 
       assert.are.equal(1, vim.fn.filereadable(temp_file), "File should exist")
 

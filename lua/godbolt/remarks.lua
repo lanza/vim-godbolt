@@ -119,7 +119,7 @@ function M.parse_remarks_yaml(yaml_file)
         local arg_key, arg_value = line:match("^%s+%-%s+(%w+):%s*(.*)$")
         if arg_key and arg_value then
           arg_value = arg_value:gsub("^['\"]", ""):gsub("['\"]$", "")
-          table.insert(current_args, {key = arg_key, value = arg_value})
+          table.insert(current_args, { key = arg_key, value = arg_value })
         end
       elseif not line:match("^%s") then
         -- Left-aligned line means we're out of Args section
@@ -235,8 +235,8 @@ function M.attach_remarks_to_passes(passes, remarks_by_pass)
         elseif remark.function_name then
           -- Check if function_name matches the target
           -- Handle both "foo" and "(foo)" formats
-          local clean_target = target_scope:gsub("^%((.+)%)$", "%1")  -- Remove parens
-          clean_target = clean_target:gsub("^%[(.+)%]$", "%1")  -- Remove brackets for [module]
+          local clean_target = target_scope:gsub("^%((.+)%)$", "%1") -- Remove parens
+          clean_target = clean_target:gsub("^%[(.+)%]$", "%1")       -- Remove brackets for [module]
 
           if remark.function_name == clean_target then
             should_include = true

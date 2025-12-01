@@ -9,7 +9,7 @@ local function create_test_scenarios()
       group_name = "SimplifyCFGPass",
       scope_type = "function",
       total_functions = 1004,
-      changed_indices = {500},  -- Only function 500 changed
+      changed_indices = { 500 }, -- Only function 500 changed
       expected_folded = true,
       expected_has_changes = true,
     },
@@ -18,7 +18,7 @@ local function create_test_scenarios()
       group_name = "InstCombinePass",
       scope_type = "function",
       total_functions = 3,
-      changed_indices = {1, 2, 3},  -- All 3 changed
+      changed_indices = { 1, 2, 3 }, -- All 3 changed
       expected_folded = true,
       expected_has_changes = true,
     },
@@ -27,7 +27,7 @@ local function create_test_scenarios()
       group_name = "DeadCodeElimPass",
       scope_type = "function",
       total_functions = 10,
-      changed_indices = {},  -- None changed
+      changed_indices = {}, -- None changed
       expected_folded = true,
       expected_has_changes = false,
     },
@@ -36,7 +36,7 @@ local function create_test_scenarios()
       group_name = "SROAPass",
       scope_type = "function",
       total_functions = 1,
-      changed_indices = {1},
+      changed_indices = { 1 },
       expected_folded = true,
       expected_has_changes = true,
     },
@@ -45,7 +45,7 @@ local function create_test_scenarios()
       group_name = "InlinerPass",
       scope_type = "cgscc",
       total_functions = 163,
-      changed_indices = {10, 50, 100},
+      changed_indices = { 10, 50, 100 },
       expected_folded = true,
       expected_has_changes = true,
     },
@@ -63,7 +63,7 @@ local scenarios = create_test_scenarios()
 -- Test: All groups start folded regardless of size or changes
 print("\nTest 1: All groups start folded")
 for _, scenario in ipairs(scenarios) do
-  local actual_folded = scenario.expected_folded  -- In the fix, all groups start folded
+  local actual_folded = scenario.expected_folded -- In the fix, all groups start folded
 
   if scenario.expected_folded == actual_folded then
     passed = passed + 1

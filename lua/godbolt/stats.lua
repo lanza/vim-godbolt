@@ -27,9 +27,9 @@ function M.count(ir_lines)
 
     -- Count instructions (indented lines with operations)
     if line:match("^%s+%%") or line:match("^%s+store") or
-       line:match("^%s+ret") or line:match("^%s+br") or
-       line:match("^%s+call") or line:match("^%s+invoke") or
-       line:match("^%s+switch") or line:match("^%s+unreachable") then
+        line:match("^%s+ret") or line:match("^%s+br") or
+        line:match("^%s+call") or line:match("^%s+invoke") or
+        line:match("^%s+switch") or line:match("^%s+unreachable") then
       stats.instructions = stats.instructions + 1
 
       -- Count specific instruction types

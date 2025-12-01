@@ -69,7 +69,7 @@ describe("LTO module", function()
 
       -- Link with lld
       local output_ll = temp_dir .. "/output.ll"
-      local success, ir_lines = lto.link_with_lld({main_o, utils_o}, output_ll, "ld.lld", "")
+      local success, ir_lines = lto.link_with_lld({ main_o, utils_o }, output_ll, "ld.lld", "")
 
       assert.is_true(success, "Linking should succeed: " .. (ir_lines or ""))
       assert.is_not_nil(ir_lines, "Should return IR lines")
@@ -95,7 +95,7 @@ describe("LTO module", function()
       local main_c = vim.fn.fnamemodify("tests/fixtures/lto_simple/main.c", ":p")
       local utils_c = vim.fn.fnamemodify("tests/fixtures/lto_simple/utils.c", ":p")
 
-      local success, ir_lines, temp = lto.lto_compile_and_link({main_c, utils_c}, {
+      local success, ir_lines, temp = lto.lto_compile_and_link({ main_c, utils_c }, {
         keep_temps = false
       })
 
@@ -122,7 +122,7 @@ describe("LTO module", function()
         "int add(int a, int b) { return a + b; }"
       }, utils_cpp)
 
-      local success, ir_lines, temp = lto.lto_compile_and_link({main_cpp, utils_cpp}, {
+      local success, ir_lines, temp = lto.lto_compile_and_link({ main_cpp, utils_cpp }, {
         compiler = "clang++",
         keep_temps = false
       })
@@ -140,7 +140,7 @@ describe("LTO module", function()
       local main_c = vim.fn.fnamemodify("tests/fixtures/lto_simple/main.c", ":p")
       local utils_c = vim.fn.fnamemodify("tests/fixtures/lto_simple/utils.c", ":p")
 
-      local success, output = lto.run_lto_pipeline({main_c, utils_c}, "-O2", "")
+      local success, output = lto.run_lto_pipeline({ main_c, utils_c }, "-O2", "")
 
       assert.is_true(success, "Pipeline should succeed: " .. (output or ""))
       assert.is_not_nil(output, "Should return output")
@@ -154,15 +154,15 @@ describe("LTO module", function()
       local main_c = vim.fn.fnamemodify("tests/fixtures/lto_simple/main.c", ":p")
       local utils_c = vim.fn.fnamemodify("tests/fixtures/lto_simple/utils.c", ":p")
 
-      for _, opt_level in ipairs({"-O0", "-O1", "-O2", "-O3", "-Os", "-Oz"}) do
-        local success, output = lto.run_lto_pipeline({main_c, utils_c}, opt_level, "")
+      for _, opt_level in ipairs({ "-O0", "-O1", "-O2", "-O3", "-Os", "-Oz" }) do
+        local success, output = lto.run_lto_pipeline({ main_c, utils_c }, opt_level, "")
         assert.is_true(success, opt_level .. " should work")
         assert.is.truthy(#output > 0, opt_level .. " should produce output")
       end
     end)
 
     it("returns error for invalid files", function()
-      local success, err = lto.run_lto_pipeline({"nonexistent.c"}, "-O2", "")
+      local success, err = lto.run_lto_pipeline({ "nonexistent.c" }, "-O2", "")
 
       assert.is_false(success, "Should fail for invalid files")
       assert.is_not_nil(err, "Should return error message")
@@ -176,7 +176,7 @@ describe("LTO integration", function()
     local utils_c = vim.fn.fnamemodify("tests/fixtures/lto_simple/utils.c", ":p")
 
     -- Run LTO compilation
-    godbolt.godbolt_lto({main_c, utils_c}, "")
+    godbolt.godbolt_lto({ main_c, utils_c }, "")
 
     -- Wait a moment for async operations
     vim.wait(1000, function() return false end)
@@ -202,7 +202,7 @@ describe("LTO integration", function()
     local utils_c = vim.fn.fnamemodify("tests/fixtures/lto_simple/utils.c", ":p")
 
     -- Run LTO pipeline
-    godbolt.godbolt_lto_pipeline({main_c, utils_c}, "-O2")
+    godbolt.godbolt_lto_pipeline({ main_c, utils_c }, "-O2")
 
     -- Wait for completion
     vim.wait(2000, function() return false end)

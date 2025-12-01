@@ -13,17 +13,17 @@ local index_specs = {
     description = "Without virtual scroll, cursor line != pass index due to headers/formatting",
     example = {
       passes = {
-        {index = 1, name = "ModulePass1"},
-        {index = 2, name = "FunctionPass on foo"},
-        {index = 3, name = "FunctionPass on bar"},
+        { index = 1, name = "ModulePass1" },
+        { index = 2, name = "FunctionPass on foo" },
+        { index = 3, name = "FunctionPass on bar" },
       },
       buffer_lines = {
         [1] = "Optimization Pipeline (3 passes)",
         [2] = "----------------------------------------",
         [3] = "",
-        [4] = " 1. [M] ModulePass1",  -- Pass index 1 → line 4
-        [5] = " 2. [F] FunctionPass on foo",  -- Pass index 2 → line 5
-        [6] = " 3. [F] FunctionPass on bar",  -- Pass index 3 → line 6
+        [4] = " 1. [M] ModulePass1",         -- Pass index 1 → line 4
+        [5] = " 2. [F] FunctionPass on foo", -- Pass index 2 → line 5
+        [6] = " 3. [F] FunctionPass on bar", -- Pass index 3 → line 6
       },
     },
     relationships = {
@@ -39,12 +39,12 @@ local index_specs = {
     example = {
       virtual_scroll = {
         enabled = true,
-        all_lines = 90000,  -- Total logical lines
-        visible_lines = 60,  -- Rendered in buffer
+        all_lines = 90000,                                    -- Total logical lines
+        visible_lines = 60,                                   -- Rendered in buffer
       },
-      cursor_line = 30,  -- Line 30 in 60-line buffer
+      cursor_line = 30,                                       -- Line 30 in 60-line buffer
       line_map = {
-        [30] = {type = "function", original_index = 45678},  -- Maps to pass 45678
+        [30] = { type = "function", original_index = 45678 }, -- Maps to pass 45678
       },
     },
     relationships = {
@@ -86,8 +86,8 @@ local index_specs = {
       group = {
         pass_name = "InstCombinePass",
         functions = {
-          {name = "foo", original_index = 500},  -- Points to M.state.passes[500]
-          {name = "bar", original_index = 501},  -- Points to M.state.passes[501]
+          { name = "foo", original_index = 500 }, -- Points to M.state.passes[500]
+          { name = "bar", original_index = 501 }, -- Points to M.state.passes[501]
         },
       },
     },
@@ -105,8 +105,8 @@ local index_specs = {
     description = "Prevent cursor from moving outside valid line range",
     buffer_line_count = 100,
     valid_cursor_range = {
-      min = 1,  -- First line
-      max = 100,  -- Last line (buffer_line_count)
+      min = 1,   -- First line
+      max = 100, -- Last line (buffer_line_count)
     },
     boundary_checks = {
       goto_next = {
@@ -155,10 +155,10 @@ local index_specs = {
     description = "line_map translates display line number → metadata",
     example = {
       line_map = {
-        [1] = {type = "module", original_index = 1},
-        [2] = {type = "function", original_index = 2},
+        [1] = { type = "module", original_index = 1 },
+        [2] = { type = "function", original_index = 2 },
         -- ...
-        [60] = {type = "function", original_index = 5000},
+        [60] = { type = "function", original_index = 5000 },
       },
     },
     usage = {
@@ -197,9 +197,9 @@ local index_specs = {
     example = {
       current_index = 50,
       line_map = {
-        [29] = {original_index = 49},
-        [30] = {original_index = 50},  -- current_index 50 → display line 30
-        [31] = {original_index = 51},
+        [29] = { original_index = 49 },
+        [30] = { original_index = 50 }, -- current_index 50 → display line 30
+        [31] = { original_index = 51 },
       },
     },
     marker_placement = {

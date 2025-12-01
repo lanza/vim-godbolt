@@ -3,7 +3,6 @@
 local remarks = require('godbolt.remarks')
 
 describe("Remarks Module", function()
-
   describe("parse_remarks_yaml", function()
     it("returns empty table for non-existent file", function()
       local result = remarks.parse_remarks_yaml("nonexistent.yaml")
@@ -112,7 +111,7 @@ describe("Remarks Module", function()
 
   describe("attach_remarks_to_passes", function()
     it("returns passes unchanged if remarks_by_pass is nil", function()
-      local passes = {{name = "TestPass"}}
+      local passes = { { name = "TestPass" } }
       local result = remarks.attach_remarks_to_passes(passes, nil)
       assert(result == passes, "Should return same passes")
     end)
@@ -124,12 +123,12 @@ describe("Remarks Module", function()
 
     it("attaches remarks to matching pass names", function()
       local passes = {
-        {name = "InlinerPass on foo"},
-        {name = "SROAPass on bar"},
+        { name = "InlinerPass on foo" },
+        { name = "SROAPass on bar" },
       }
       local remarks_by_pass = {
-        InlinerPass = {{category = "pass", message = "Inlined"}},
-        SROAPass = {{category = "pass", message = "ScalarReplaced"}},
+        InlinerPass = { { category = "pass", message = "Inlined" } },
+        SROAPass = { { category = "pass", message = "ScalarReplaced" } },
       }
 
       local result = remarks.attach_remarks_to_passes(passes, remarks_by_pass)
@@ -142,10 +141,10 @@ describe("Remarks Module", function()
 
     it("handles passes without matching remarks", function()
       local passes = {
-        {name = "UnknownPass on foo"},
+        { name = "UnknownPass on foo" },
       }
       local remarks_by_pass = {
-        InlinerPass = {{category = "pass", message = "Inlined"}},
+        InlinerPass = { { category = "pass", message = "Inlined" } },
       }
 
       local result = remarks.attach_remarks_to_passes(passes, remarks_by_pass)
@@ -156,14 +155,14 @@ describe("Remarks Module", function()
 
     it("extracts base pass name correctly", function()
       local passes = {
-        {name = "InlinerPass on (foo)"},  -- CGSCC format
-        {name = "SROAPass on bar"},       -- Function format
-        {name = "ModulePass on [module]"}, -- Module format
+        { name = "InlinerPass on (foo)" },   -- CGSCC format
+        { name = "SROAPass on bar" },        -- Function format
+        { name = "ModulePass on [module]" }, -- Module format
       }
       local remarks_by_pass = {
-        InlinerPass = {{category = "pass", message = "Inlined"}},
-        SROAPass = {{category = "pass", message = "ScalarReplaced"}},
-        ModulePass = {{category = "pass", message = "Optimized"}},
+        InlinerPass = { { category = "pass", message = "Inlined" } },
+        SROAPass = { { category = "pass", message = "ScalarReplaced" } },
+        ModulePass = { { category = "pass", message = "Optimized" } },
       }
 
       local result = remarks.attach_remarks_to_passes(passes, remarks_by_pass)
@@ -203,7 +202,7 @@ describe("Remarks Module", function()
     it("deletes existing remarks file", function()
       -- Create a temp file
       local temp_file = vim.fn.tempname() .. ".yaml"
-      vim.fn.writefile({"test"}, temp_file)
+      vim.fn.writefile({ "test" }, temp_file)
       assert(vim.fn.filereadable(temp_file) == 1, "Temp file should exist")
 
       -- Cleanup

@@ -74,7 +74,7 @@ describe("output preference with compile_commands.json", function()
 
     -- Should be LLVM IR, not assembly
     assert.truthy(output:match("ModuleID") or output:match("target datalayout"),
-                  "Expected LLVM IR output with ModuleID or target datalayout")
+      "Expected LLVM IR output with ModuleID or target datalayout")
     assert.falsy(output:match("%.section"), "Should not contain assembly directives")
     assert.falsy(output:match("%.globl"), "Should not contain assembly directives")
   end)
@@ -138,6 +138,6 @@ describe("output preference with compile_commands.json", function()
     local lines = vim.api.nvim_buf_get_lines(bufnr, 0, 20, false)
     local output = table.concat(lines, "\n")
     assert.truthy(output:match("ModuleID") or output:match("target datalayout"),
-                  "Should output LLVM IR")
+      "Should output LLVM IR")
   end)
 end)

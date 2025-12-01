@@ -57,7 +57,8 @@ local function create_assert()
   -- luassert.are.equal(expected, actual)
   assert_table.are = {
     equal = function(expected, actual, message)
-      return base_assert(actual == expected, message or string.format("Expected %s, got %s", tostring(expected), tostring(actual)))
+      return base_assert(actual == expected,
+        message or string.format("Expected %s, got %s", tostring(expected), tostring(actual)))
     end,
     same = function(expected, actual, message)
       return base_assert(vim.deep_equal(expected, actual), message or "Tables are not equal")

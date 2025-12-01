@@ -5,7 +5,13 @@ describe("C/C++ pipeline support", function()
   describe("clang pipeline execution", function()
     it("captures passes for simple C function with O2", function()
       local test_file = vim.fn.fnamemodify("tests/fixtures/simple.c", ":p")
-      local passes = pipeline.run_pipeline(test_file, "O2")
+      local passes
+
+      pipeline.run_pipeline(test_file, "O2", {}, function(result)
+        passes = result
+      end)
+
+      vim.wait(5000, function() return passes ~= nil end)
 
       -- Check if clang is available
       if vim.fn.executable("clang") == 0 then
@@ -36,9 +42,27 @@ describe("C/C++ pipeline support", function()
         return
       end
 
-      local passes_o0 = pipeline.run_pipeline(test_file, "O0")
-      local passes_o2 = pipeline.run_pipeline(test_file, "O2")
-      local passes_o3 = pipeline.run_pipeline(test_file, "O3")
+      local passes_o0
+      local passes_o2
+      local passes_o3
+
+      pipeline.run_pipeline(test_file, "O0", {}, function(result)
+        passes_o0 = result
+      end)
+
+      vim.wait(5000, function() return passes_o0 ~= nil end)
+
+      pipeline.run_pipeline(test_file, "O2", {}, function(result)
+        passes_o2 = result
+      end)
+
+      vim.wait(5000, function() return passes_o2 ~= nil end)
+
+      pipeline.run_pipeline(test_file, "O3", {}, function(result)
+        passes_o3 = result
+      end)
+
+      vim.wait(5000, function() return passes_o3 ~= nil end)
 
       assert.is_not_nil(passes_o0)
       assert.is_not_nil(passes_o2)
@@ -58,7 +82,15 @@ describe("C/C++ pipeline support", function()
         return
       end
 
-      local passes = pipeline.run_pipeline(test_file, "O2")
+      local passes
+
+
+      pipeline.run_pipeline(test_file, "O2", {}, function(result)
+        passes = result
+      end)
+
+
+      vim.wait(5000, function() return passes ~= nil end)
 
       assert.is_not_nil(passes)
       assert.is_true(#passes > 0)
@@ -85,7 +117,15 @@ describe("C/C++ pipeline support", function()
         return
       end
 
-      local passes = pipeline.run_pipeline(test_file, "O2")
+      local passes
+
+
+      pipeline.run_pipeline(test_file, "O2", {}, function(result)
+        passes = result
+      end)
+
+
+      vim.wait(5000, function() return passes ~= nil end)
 
       assert.is_not_nil(passes)
       assert.is_true(#passes > 0, "Should capture passes for C++")
@@ -113,7 +153,13 @@ describe("C/C++ pipeline support", function()
       end
 
       -- Custom passes should not be supported
-      local passes = pipeline.run_pipeline(test_file, "mem2reg,instcombine")
+      local passes
+
+      pipeline.run_pipeline(test_file, "mem2reg,instcombine", {}, function(result)
+        passes = result
+      end)
+
+      vim.wait(5000, function() return passes ~= nil end)
 
       -- Should either return nil or be rejected at higher level
       -- The rejection happens in godbolt_pipeline, not run_pipeline
@@ -125,7 +171,7 @@ describe("C/C++ pipeline support", function()
       -- Create a test file with syntax errors
       local error_file = vim.fn.tempname() .. ".c"
       vim.fn.writefile({
-        "int main( {",  -- Missing )
+        "int main( {", -- Missing )
         "  return 0;",
         "}"
       }, error_file)
@@ -136,7 +182,15 @@ describe("C/C++ pipeline support", function()
         return
       end
 
-      local passes = pipeline.run_pipeline(error_file, "O2")
+      local passes
+
+
+      pipeline.run_pipeline(error_file, "O2", {}, function(result)
+        passes = result
+      end)
+
+
+      vim.wait(5000, function() return passes ~= nil end)
 
       -- Should return nil on compilation error
       assert.is_nil(passes, "Should return nil on compilation error")
@@ -155,7 +209,15 @@ describe("C/C++ pipeline support", function()
         return
       end
 
-      local passes = pipeline.run_pipeline(test_file, "O2")
+      local passes
+
+
+      pipeline.run_pipeline(test_file, "O2", {}, function(result)
+        passes = result
+      end)
+
+
+      vim.wait(5000, function() return passes ~= nil end)
 
       if not passes or #passes == 0 then
         pending("No passes captured")
@@ -169,10 +231,10 @@ describe("C/C++ pipeline support", function()
         -- Module-level passes might only have attributes/metadata after cleaning
         local has_function = (ir_text:match("define ") or ir_text:match("declare ")) ~= nil
         local has_llvm_ir_markers = ir_text:match("^attributes ") ~= nil or
-                                     ir_text:match("^!") ~= nil or  -- metadata
-                                     ir_text:match("^target ") ~= nil or
-                                     ir_text:match("^source_filename") ~= nil or
-                                     #pass.ir == 0
+            ir_text:match("^!") ~= nil or -- metadata
+            ir_text:match("^target ") ~= nil or
+            ir_text:match("^source_filename") ~= nil or
+            #pass.ir == 0
         assert.is_true(
           has_function or has_llvm_ir_markers,
           "Pass '" .. pass.name .. "' should contain LLVM IR or typical IR constructs"
@@ -188,7 +250,15 @@ describe("C/C++ pipeline support", function()
         return
       end
 
-      local passes = pipeline.run_pipeline(test_file, "O2")
+      local passes
+
+
+      pipeline.run_pipeline(test_file, "O2", {}, function(result)
+        passes = result
+      end)
+
+
+      vim.wait(5000, function() return passes ~= nil end)
 
       if not passes or #passes == 0 then
         pending("No passes captured")
@@ -216,9 +286,39 @@ describe("C/C++ pipeline support", function()
       end
 
       -- All these should work (or at least not crash)
-      local ok1, passes1 = pcall(pipeline.run_pipeline, test_file, "O2")
-      local ok2, passes2 = pcall(pipeline.run_pipeline, test_file, "-O2")
-      local ok3, passes3 = pcall(pipeline.run_pipeline, test_file, "2")
+      local ok1, passes1
+
+      ok1, passes1 = pcall(function()
+        local passes
+
+        pipeline.run_pipeline(test_file, "O2", {}, function(result) passes = result end)
+
+        vim.wait(5000, function() return passes ~= nil end)
+
+        return passes
+      end)
+      local ok2, passes2
+
+      ok2, passes2 = pcall(function()
+        local passes
+
+        pipeline.run_pipeline(test_file, "-O2", {}, function(result) passes = result end)
+
+        vim.wait(5000, function() return passes ~= nil end)
+
+        return passes
+      end)
+      local ok3, passes3
+
+      ok3, passes3 = pcall(function()
+        local passes
+
+        pipeline.run_pipeline(test_file, "2", {}, function(result) passes = result end)
+
+        vim.wait(5000, function() return passes ~= nil end)
+
+        return passes
+      end)
 
       assert.is_true(ok1, "Should handle 'O2'")
       assert.is_true(ok2, "Should handle '-O2'")
@@ -237,7 +337,17 @@ describe("pipeline dispatcher", function()
     end
 
     -- Should not crash for .ll files
-    local ok, passes = pcall(pipeline.run_pipeline, test_file, "sroa")
+    local ok, passes
+
+    ok, passes = pcall(function()
+      local passes
+
+      pipeline.run_pipeline(test_file, "sroa", {}, function(result) passes = result end)
+
+      vim.wait(5000, function() return passes ~= nil end)
+
+      return passes
+    end)
 
     assert.is_true(ok, "Should handle .ll files")
   end)
@@ -250,7 +360,21 @@ describe("pipeline dispatcher", function()
       return
     end
 
-    local ok, passes = pcall(pipeline.run_pipeline, test_file, "O2")
+    local ok, passes
+
+
+    ok, passes = pcall(function()
+      local passes
+
+
+      pipeline.run_pipeline(test_file, "O2", {}, function(result) passes = result end)
+
+
+      vim.wait(5000, function() return passes ~= nil end)
+
+
+      return passes
+    end)
 
     assert.is_true(ok, "Should handle .c files")
   end)
@@ -260,16 +384,36 @@ describe("pipeline dispatcher", function()
 
     if vim.fn.executable("clang++") == 0 then
       pending("clang++ not installed")
-        return
+      return
     end
 
-    local ok, passes = pcall(pipeline.run_pipeline, test_file, "O2")
+    local ok, passes
+
+
+    ok, passes = pcall(function()
+      local passes
+
+
+      pipeline.run_pipeline(test_file, "O2", {}, function(result) passes = result end)
+
+
+      vim.wait(5000, function() return passes ~= nil end)
+
+
+      return passes
+    end)
 
     assert.is_true(ok, "Should handle .cpp files")
   end)
 
   it("rejects unsupported file types", function()
-    local result = pipeline.run_pipeline("test.txt", "O2")
+    local result
+
+    pipeline.run_pipeline("test.txt", "O2", {}, function(result)
+      result = result
+    end)
+
+    vim.wait(5000, function() return result ~= nil end)
 
     assert.is_nil(result, "Should reject unsupported file types")
   end)
@@ -286,7 +430,8 @@ define void @bar() { ret void }
 define void @foo() { ret void }
 ]]
 
-    local passes = pipeline.parse_pipeline_output(output, "clang")
+    local result = pipeline.pipeline_parser.parse_pipeline_output_lazy(output, "clang")
+    local passes = result.passes
 
     assert.are.equal(2, #passes, "Should parse both passes")
     assert.are.equal("module", passes[1].scope_type, "First pass should be module scope")
@@ -301,7 +446,8 @@ define void @foo() { ret void }
 define void @quicksort() { ret void }
 ]]
 
-    local passes = pipeline.parse_pipeline_output(output, "clang")
+    local result = pipeline.pipeline_parser.parse_pipeline_output_lazy(output, "clang")
+    local passes = result.passes
 
     assert.are.equal(1, #passes, "Should parse one pass")
     assert.are.equal("cgscc", passes[1].scope_type, "Should be CGSCC scope")
@@ -314,7 +460,8 @@ define void @quicksort() { ret void }
 define i32 @main() { ret i32 0 }
 ]]
 
-    local passes = pipeline.parse_pipeline_output(output, "clang")
+    local result = pipeline.pipeline_parser.parse_pipeline_output_lazy(output, "clang")
+    local passes = result.passes
 
     assert.are.equal(1, #passes, "Should parse one pass")
     assert.are.equal("function", passes[1].scope_type, "Should be function scope")
@@ -337,7 +484,8 @@ define void @foo() { ret void }
 define void @bar() { ret void }
 ]]
 
-    local passes = pipeline.parse_pipeline_output(output, "clang")
+    local result = pipeline.pipeline_parser.parse_pipeline_output_lazy(output, "clang")
+    local passes = result.passes
 
     assert.are.equal(4, #passes, "Should parse all four passes")
 
@@ -370,7 +518,14 @@ attributes #0 = { nounwind }
 define void @foo() { ret void }
 ]]
 
-    local passes = pipeline.parse_pipeline_output(output, "clang")
+    local result = pipeline.pipeline_parser.parse_pipeline_output_lazy(output, "clang")
+    local passes = result.passes
+
+    -- Resolve IR for the passes
+    pipeline.ir_resolver.clear_cache()
+    for i = 1, #passes do
+      passes[i].ir = pipeline.ir_resolver.get_after_ir(passes, result.initial_ir, i)
+    end
 
     assert.are.equal(2, #passes)
 
@@ -397,7 +552,15 @@ describe("real-world C/C++ file with scope detection", function()
       return
     end
 
-    local passes = pipeline.run_pipeline(test_file, "O2")
+    local passes
+
+
+    pipeline.run_pipeline(test_file, "O2", {}, function(result)
+      passes = result
+    end)
+
+
+    vim.wait(5000, function() return passes ~= nil end)
 
     if not passes or #passes == 0 then
       pending("No passes captured from qs.c")
@@ -448,4 +611,3 @@ describe("real-world C/C++ file with scope detection", function()
     assert.is_true(ir_text:match("main") ~= nil, "Initial IR should contain main")
   end)
 end)
-

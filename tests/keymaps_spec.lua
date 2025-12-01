@@ -3,7 +3,6 @@
 local godbolt = require('godbolt')
 
 describe("Keymaps Configuration", function()
-
   describe("Default keymaps", function()
     it("has all required keymap fields", function()
       local keymaps = godbolt.config.pipeline.keymaps
@@ -152,7 +151,6 @@ end)
 local pipeline_viewer = require('godbolt.pipeline_viewer')
 
 describe("Help Menu", function()
-
   describe("show_help_menu", function()
     it("function exists", function()
       assert(type(pipeline_viewer.show_help_menu) == "function", "show_help_menu should be a function")
@@ -169,7 +167,6 @@ describe("Help Menu", function()
 end)
 
 describe("Inline Hints (Diagnostics)", function()
-
   describe("show_inline_hints", function()
     it("function exists", function()
       assert(type(pipeline_viewer.show_inline_hints) == "function", "show_inline_hints should be a function")

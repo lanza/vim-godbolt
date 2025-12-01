@@ -34,8 +34,8 @@ describe("lto_stats", function()
       }
 
       local file_map = {
-        ["!1"] = {filename = "main.c", directory = "/path"},
-        ["!2"] = {filename = "utils.c", directory = "/path"},
+        ["!1"] = { filename = "main.c", directory = "/path" },
+        ["!2"] = { filename = "utils.c", directory = "/path" },
       }
 
       local func_sources = lto_stats.parse_function_sources(ir_lines, file_map)
@@ -49,8 +49,8 @@ describe("lto_stats", function()
     it("should detect inlined cross-module calls", function()
       local before_ir = {
         'define i32 @main() {',
-        '  %1 = call i32 @add(i32 1, i32 2)',  -- Cross-module call
-        '  %2 = call i32 @multiply(i32 %1, i32 3)',  -- Another cross-module call
+        '  %1 = call i32 @add(i32 1, i32 2)',       -- Cross-module call
+        '  %2 = call i32 @multiply(i32 %1, i32 3)', -- Another cross-module call
         '  ret i32 %2',
         '}',
         'declare i32 @add(i32, i32)',
@@ -59,16 +59,16 @@ describe("lto_stats", function()
 
       local after_ir = {
         'define i32 @main() {',
-        '  %1 = add i32 1, 2',  -- Inlined!
-        '  %2 = call i32 @multiply(i32 %1, i32 3)',  -- Not inlined
+        '  %1 = add i32 1, 2',                      -- Inlined!
+        '  %2 = call i32 @multiply(i32 %1, i32 3)', -- Not inlined
         '  ret i32 %2',
         '}',
       }
 
       local func_sources = {
-        ["main"] = {filename = "main.c"},
-        ["add"] = {filename = "utils.c"},
-        ["multiply"] = {filename = "utils.c"},
+        ["main"] = { filename = "main.c" },
+        ["add"] = { filename = "utils.c" },
+        ["multiply"] = { filename = "utils.c" },
       }
 
       local stats = lto_stats.detect_cross_module_inlining(before_ir, after_ir, func_sources)
@@ -91,16 +91,16 @@ describe("lto_stats", function()
 
       local after_ir = {
         'define i32 @main() {',
-        '  %1 = add i32 1, 2',  -- Both inlined
+        '  %1 = add i32 1, 2', -- Both inlined
         '  %2 = mul i32 %1, 3',
         '  ret i32 %2',
         '}',
       }
 
       local func_sources = {
-        ["main"] = {filename = "main.c"},
-        ["add"] = {filename = "utils.c"},
-        ["multiply"] = {filename = "math.c"},
+        ["main"] = { filename = "main.c" },
+        ["add"] = { filename = "utils.c" },
+        ["multiply"] = { filename = "math.c" },
       }
 
       local stats = lto_stats.detect_cross_module_inlining(before_ir, after_ir, func_sources)
@@ -129,8 +129,8 @@ describe("lto_stats", function()
       }
 
       local func_sources = {
-        ["main"] = {filename = "main.c"},
-        ["add"] = {filename = "utils.c"},
+        ["main"] = { filename = "main.c" },
+        ["add"] = { filename = "utils.c" },
       }
 
       local stats = lto_stats.detect_cross_module_inlining(before_ir, after_ir, func_sources)
@@ -158,9 +158,9 @@ describe("lto_stats", function()
       }
 
       local func_sources = {
-        ["main"] = {filename = "main.c"},
-        ["add"] = {filename = "utils.c"},
-        ["unused_helper"] = {filename = "utils.c"},
+        ["main"] = { filename = "main.c" },
+        ["add"] = { filename = "utils.c" },
+        ["unused_helper"] = { filename = "utils.c" },
       }
 
       local stats = lto_stats.track_dead_code_elimination(before_ir, after_ir, func_sources)
@@ -184,10 +184,10 @@ describe("lto_stats", function()
       }
 
       local func_sources = {
-        ["main"] = {filename = "main.c"},
-        ["helper1"] = {filename = "helpers.c"},
-        ["helper2"] = {filename = "helpers.c"},
-        ["util1"] = {filename = "utils.c"},
+        ["main"] = { filename = "main.c" },
+        ["helper1"] = { filename = "helpers.c" },
+        ["helper2"] = { filename = "helpers.c" },
+        ["util1"] = { filename = "utils.c" },
       }
 
       local stats = lto_stats.track_dead_code_elimination(before_ir, after_ir, func_sources)
@@ -208,14 +208,14 @@ describe("lto_stats", function()
         cross_module_calls_before = 3,
         cross_module_calls_after = 1,
         inlines_by_file = {
-          ["main.c"] = {count = 2, targets = {"utils.c", "math.c"}},
+          ["main.c"] = { count = 2, targets = { "utils.c", "math.c" } },
         },
       }
 
       local dce_stats = {
         functions_removed = 3,
         functions_by_file = {
-          ["utils.c"] = {removed = {"unused1", "unused2"}, kept = {"add"}},
+          ["utils.c"] = { removed = { "unused1", "unused2" }, kept = { "add" } },
         },
       }
 

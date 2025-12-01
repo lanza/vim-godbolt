@@ -3,7 +3,7 @@ local file_colors = require('godbolt.file_colors')
 describe("file_colors", function()
   describe("assign_file_colors", function()
     it("should assign unique colors to files", function()
-      local filenames = {"main.c", "utils.c", "helpers.c"}
+      local filenames = { "main.c", "utils.c", "helpers.c" }
       local color_map = file_colors.assign_file_colors(filenames)
 
       assert.are.equal("GodboltFile1", color_map["main.c"])

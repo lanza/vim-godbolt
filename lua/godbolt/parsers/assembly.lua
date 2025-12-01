@@ -33,9 +33,9 @@ end
 -- Parse assembly output and build line mappings
 -- Returns: src_to_asm, asm_to_src tables
 function M.parse(asm_lines)
-  local src_to_asm = {}  -- source_line → [asm_line_nums]
-  local asm_to_src = {}  -- asm_line_num → source_line
-  local file_table = {}  -- file_id → file_path
+  local src_to_asm = {} -- source_line → [asm_line_nums]
+  local asm_to_src = {} -- asm_line_num → source_line
+  local file_table = {} -- file_id → file_path
   local current_src_line = nil
   local current_file_id = 0
 

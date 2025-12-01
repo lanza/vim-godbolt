@@ -22,7 +22,7 @@ local function throttle(fn, delay_ms)
   return function(...)
     if not pending then
       pending = true
-      local args = {...}
+      local args = { ... }
       timer:start(delay_ms, 0, vim.schedule_wrap(function()
         fn(unpack(args))
         pending = false
@@ -39,7 +39,7 @@ local function apply_static_highlights()
   end
 
   if not vim.api.nvim_buf_is_valid(state.source_bufnr) or
-     not vim.api.nvim_buf_is_valid(state.output_bufnr) then
+      not vim.api.nvim_buf_is_valid(state.output_bufnr) then
     return
   end
 
@@ -61,14 +61,14 @@ local function apply_static_highlights()
     -- Highlight source line if not already highlighted
     local is_highlighted = false
     for _, hl_line in ipairs(highlighted_source_lines) do
-      if hl_line == (src_line - 1) then  -- Compare with 0-indexed line
+      if hl_line == (src_line - 1) then -- Compare with 0-indexed line
         is_highlighted = true
         break
       end
     end
 
     if not is_highlighted then
-      highlight.highlight_lines_static(state.source_bufnr, {src_line})
+      highlight.highlight_lines_static(state.source_bufnr, { src_line })
       table.insert(highlighted_source_lines, src_line - 1)
     end
 
@@ -94,7 +94,7 @@ local function update_source_highlights(config)
   end
 
   if not vim.api.nvim_buf_is_valid(state.source_bufnr) or
-     not vim.api.nvim_buf_is_valid(state.output_bufnr) then
+      not vim.api.nvim_buf_is_valid(state.output_bufnr) then
     return
   end
 
@@ -128,7 +128,7 @@ local function update_source_highlights(config)
 
   if #mapped_lines > 0 then
     -- Highlight current source line with cursor style
-    highlight.highlight_lines_cursor(state.source_bufnr, {cursor_line})
+    highlight.highlight_lines_cursor(state.source_bufnr, { cursor_line })
 
     -- Highlight mapped lines in output buffer with cursor style
     highlight.highlight_lines_cursor(state.output_bufnr, mapped_lines)
@@ -149,7 +149,7 @@ local function update_source_highlights(config)
               -- Only scroll if line is off-screen
               if first_line < top_line or first_line > bot_line then
                 vim.fn.cursor(first_line, 1)
-                vim.cmd('normal! zz')  -- Center line
+                vim.cmd('normal! zz') -- Center line
               end
             end
           end)
@@ -167,7 +167,7 @@ local function update_output_highlights(config)
   end
 
   if not vim.api.nvim_buf_is_valid(state.source_bufnr) or
-     not vim.api.nvim_buf_is_valid(state.output_bufnr) then
+      not vim.api.nvim_buf_is_valid(state.output_bufnr) then
     return
   end
 
@@ -200,14 +200,14 @@ local function update_output_highlights(config)
     end
 
     -- Highlight current output line with cursor style
-    highlight.highlight_lines_cursor(state.output_bufnr, {cursor_line})
+    highlight.highlight_lines_cursor(state.output_bufnr, { cursor_line })
 
     -- Highlight mapped source line with cursor style
     -- If we have column info, highlight that specific column/token
     if mapped_src_col then
       highlight.highlight_column_cursor(state.source_bufnr, mapped_src_line, mapped_src_col)
     else
-      highlight.highlight_lines_cursor(state.source_bufnr, {mapped_src_line})
+      highlight.highlight_lines_cursor(state.source_bufnr, { mapped_src_line })
     end
 
     -- Optional: Auto-scroll to mapped source line
@@ -225,7 +225,7 @@ local function update_output_highlights(config)
               -- Only scroll if line is off-screen
               if mapped_src_line < top_line or mapped_src_line > bot_line then
                 vim.fn.cursor(mapped_src_line, 1)
-                vim.cmd('normal! zz')  -- Center line
+                vim.cmd('normal! zz') -- Center line
               end
             end
           end)
@@ -297,7 +297,7 @@ function M.setup(source_bufnr, output_bufnr, output_type, config)
   -- Use full unfiltered output if available (for debug metadata parsing),
   -- otherwise fallback to displayed lines
   local output_lines = vim.b[output_bufnr].godbolt_full_output or
-                       vim.api.nvim_buf_get_lines(output_bufnr, 0, -1, false)
+      vim.api.nvim_buf_get_lines(output_bufnr, 0, -1, false)
 
   -- Parse based on output type
   if output_type == "asm" then
@@ -333,7 +333,7 @@ function M.setup(source_bufnr, output_bufnr, output_type, config)
   end, config.throttle_ms)
 
   -- Set up cursor tracking for source buffer
-  local source_autocmd = vim.api.nvim_create_autocmd({'CursorMoved', 'CursorMovedI'}, {
+  local source_autocmd = vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI' }, {
     buffer = source_bufnr,
     callback = function()
       throttled_source_update()
@@ -343,7 +343,7 @@ function M.setup(source_bufnr, output_bufnr, output_type, config)
   table.insert(state.autocmd_ids, source_autocmd)
 
   -- Set up cursor tracking for output buffer (bidirectional)
-  local output_autocmd = vim.api.nvim_create_autocmd({'CursorMoved', 'CursorMovedI'}, {
+  local output_autocmd = vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI' }, {
     buffer = output_bufnr,
     callback = function()
       throttled_output_update()

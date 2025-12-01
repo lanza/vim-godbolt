@@ -188,7 +188,7 @@ function M.lto_compile_and_link(source_files, config)
     if not keep_temps then
       vim.fn.delete(temp_dir, "rf")
     end
-    return false, object_files  -- object_files contains error message
+    return false, object_files -- object_files contains error message
   end
 
   -- Step 2: Link object files with LTO
@@ -199,7 +199,7 @@ function M.lto_compile_and_link(source_files, config)
     if not keep_temps then
       vim.fn.delete(temp_dir, "rf")
     end
-    return false, ir_lines  -- ir_lines contains error message
+    return false, ir_lines -- ir_lines contains error message
   end
 
   -- Return success with IR and temp dir (caller decides cleanup)
@@ -250,10 +250,9 @@ function M.run_lto_pipeline(source_files, opt_level, extra_args)
   -- -g: Generate debug info (required for DIFile and DISubprogram metadata)
   -- -fno-discard-value-names: Keep SSA value names for readability
   -- -fstandalone-debug: Complete debug info (not minimal)
-  -- -Wl,-mllvm,-print-after-all: Print IR after each pass
-  -- -Wl,-mllvm,-print-before-all: Print IR before each pass (needed for accurate diff attribution)
+  -- -Wl,-mllvm,-print-changed: Only print IR when passes change it
   local cmd = string.format(
-    '%s -flto -g -fno-discard-value-names -fstandalone-debug %s %s -Wl,-mllvm,-print-after-all -Wl,-mllvm,-print-before-all %s -o "%s" 2>&1',
+    '%s -flto -g -fno-discard-value-names -fstandalone-debug %s %s -Wl,-mllvm,-print-changed %s -o "%s" 2>&1',
     compiler,
     opt_level,
     extra_args,

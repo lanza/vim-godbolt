@@ -4,21 +4,21 @@
 
 local test_lines = {
   -- Module passes
-  {line = "  1. [M] Annotation2MetadataPass on [module]", type = "module", selected = false},
-  {line = "> 3. [M] InferFunctionAttrsPass on [module]", type = "module", selected = true},
+  { line = "  1. [M] Annotation2MetadataPass on [module]", type = "module", selected = false },
+  { line = "> 3. [M] InferFunctionAttrsPass on [module]", type = "module", selected = true },
 
   -- Group headers (folded)
-  {line = "  5. ▸ [F] EntryExitInstrumenterPass (163 functions)", type = "group_folded", selected = false},
-  {line = "> 7. ▸ [C] InlinerPass (163 functions)", type = "group_folded", selected = true},
+  { line = "  5. ▸ [F] EntryExitInstrumenterPass (163 functions)", type = "group_folded", selected = false },
+  { line = "> 7. ▸ [C] InlinerPass (163 functions)", type = "group_folded", selected = true },
 
   -- Group headers (unfolded)
-  {line = "  9. ▾ [F] SimplifyCFGPass (1004 functions)", type = "group_unfolded", selected = false},
-  {line = "> 11. ▾ [C] PostOrderFunctionAttrsPass (326 functions)", type = "group_unfolded", selected = true},
+  { line = "  9. ▾ [F] SimplifyCFGPass (1004 functions)", type = "group_unfolded", selected = false },
+  { line = "> 11. ▾ [C] PostOrderFunctionAttrsPass (326 functions)", type = "group_unfolded", selected = true },
 
   -- Function entries
-  {line = "         function1", type = "function", selected = false},
-  {line = "     ●   function2", type = "function", selected = true},
-  {line = "     ●   (foo, bar, baz)", type = "function", selected = true},
+  { line = "         function1", type = "function", selected = false },
+  { line = "     ●   function2", type = "function", selected = true },
+  { line = "     ●   (foo, bar, baz)", type = "function", selected = true },
 }
 
 -- Patterns from pipeline_viewer.lua

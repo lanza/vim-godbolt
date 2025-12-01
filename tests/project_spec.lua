@@ -36,7 +36,7 @@ describe("project", function()
       local temp_dir = vim.fn.tempname()
       vim.fn.mkdir(temp_dir)
       vim.fn.mkdir(temp_dir .. "/build")
-      vim.fn.writefile({"{}"}, temp_dir .. "/compile_commands.json")
+      vim.fn.writefile({ "{}" }, temp_dir .. "/compile_commands.json")
 
       local root = project.find_project_root(temp_dir .. "/build")
 
@@ -63,8 +63,8 @@ describe("project", function()
     it("should find compile_commands.json in project root", function()
       local temp_dir = vim.fn.tempname()
       vim.fn.mkdir(temp_dir)
-      vim.fn.mkdir(temp_dir .. "/.git")  -- marker for project root
-      vim.fn.writefile({"{}"}, temp_dir .. "/compile_commands.json")
+      vim.fn.mkdir(temp_dir .. "/.git") -- marker for project root
+      vim.fn.writefile({ "{}" }, temp_dir .. "/compile_commands.json")
 
       local cc_path = project.find_compile_commands(temp_dir)
 
@@ -79,7 +79,7 @@ describe("project", function()
       vim.fn.mkdir(temp_dir)
       vim.fn.mkdir(temp_dir .. "/.git")
       vim.fn.mkdir(temp_dir .. "/build")
-      vim.fn.writefile({"{}"}, temp_dir .. "/build/compile_commands.json")
+      vim.fn.writefile({ "{}" }, temp_dir .. "/build/compile_commands.json")
 
       local cc_path = project.find_compile_commands(temp_dir)
 
@@ -94,7 +94,7 @@ describe("project", function()
       vim.fn.mkdir(temp_dir)
       vim.fn.mkdir(temp_dir .. "/.git")
       vim.fn.mkdir(temp_dir .. "/cmake-build-debug")
-      vim.fn.writefile({"{}"}, temp_dir .. "/cmake-build-debug/compile_commands.json")
+      vim.fn.writefile({ "{}" }, temp_dir .. "/cmake-build-debug/compile_commands.json")
 
       local cc_path = project.find_compile_commands(temp_dir)
 

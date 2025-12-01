@@ -3,9 +3,9 @@ local M = {}
 -- Parse LLVM IR using treesitter to extract line mappings
 -- Returns: src_to_ir, ir_to_src tables
 function M.parse(ir_lines)
-  local src_to_ir = {}  -- source_line → [ir_line_nums]
-  local ir_to_src = {}  -- ir_line_num → source_line
-  local metadata = {}   -- metadata_id → {line, column}
+  local src_to_ir = {} -- source_line → [ir_line_nums]
+  local ir_to_src = {} -- ir_line_num → source_line
+  local metadata = {}  -- metadata_id → {line, column}
 
   -- First pass: Build metadata table by parsing !DILocation entries
   for ir_line_num, line in ipairs(ir_lines) do
@@ -26,8 +26,7 @@ function M.parse(ir_lines)
   for ir_line_num, line in ipairs(ir_lines) do
     -- Skip metadata lines and attributes
     if not line:match("^!") and not line:match("^attributes") and not line:match("^source_filename")
-       and not line:match("^target") and not line:match("^; ") then
-
+        and not line:match("^target") and not line:match("^; ") then
       -- Check if this is a #dbg_declare or #dbg_value intrinsic
       -- Examples:
       --   #dbg_declare(ptr %arr.addr, !23, !DIExpression(), !24)

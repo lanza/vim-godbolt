@@ -11,21 +11,59 @@ describe("LTO Phase 3 Integration", function()
 
   describe("Full LTO Phase 3 workflow", function()
     it("should generate before/after IR and statistics from pipeline", function()
-      -- Run LTO pipeline
-      local success, pipeline_output = lto.run_lto_pipeline({main_c, utils_c}, "-O2", "")
+      -- Run LTO pipeline to get raw output
+      local success, pipeline_output = lto.run_lto_pipeline({ main_c, utils_c }, "-O2", "")
       assert.is_true(success, "LTO pipeline should succeed")
 
-      -- Parse pipeline output
-      local passes, initial_ir = pipeline.parse_pipeline_output(pipeline_output, "clang")
+      -- Parse pipeline output using the new lazy parser
+      local result = pipeline.parse_pipeline_lazy(pipeline_output, "clang")
+      local passes = result.passes
+      local initial_ir = result.initial_ir
       assert.is_table(passes)
       assert.is_true(#passes > 0, "Should have captured passes")
+
+      -- Clear resolution cache before resolving passes
+      pipeline.ir_resolver.clear_cache()
+
+      -- Resolve IR for the passes we need
+      for i, pass in ipairs(passes) do
+        pass._initial_ir = initial_ir
+        pass.ir = pipeline.ir_resolver.get_after_ir(passes, initial_ir, i)
+      end
+
+      -- Find last changed module pass for analysis
+      -- (Function passes may have partial IR, so we want a full module view)
+      local last_ir_pass_idx = nil
+      for i = #passes, 1, -1 do
+        local pass = passes[i]
+        if pass.changed == true and pass.scope_type == "module" then
+          last_ir_pass_idx = i
+          break
+        end
+      end
+
+      if not last_ir_pass_idx then
+        -- Fallback: use first module pass if nothing changed
+        for i = 1, #passes do
+          if passes[i].scope_type == "module" then
+            last_ir_pass_idx = i
+            break
+          end
+        end
+      end
+
+      if not last_ir_pass_idx then
+        -- Final fallback: use first pass
+        last_ir_pass_idx = 1
+      end
 
       -- Get before/after IR
       local before_ir = initial_ir
       if not before_ir or #before_ir == 0 then
-        before_ir = passes[1].before_ir
+        -- Get before IR from first pass
+        before_ir = pipeline.ir_resolver.get_before_ir(passes, initial_ir, 1)
       end
-      local after_ir = passes[#passes].ir
+      local after_ir = passes[last_ir_pass_idx].ir
 
       assert.is_table(before_ir)
       assert.is_table(after_ir)
@@ -73,14 +111,14 @@ describe("LTO Phase 3 Integration", function()
         cross_module_calls_before = 2,
         cross_module_calls_after = 0,
         inlines_by_file = {
-          ["main.c"] = {count = 2, targets = {"utils.c"}},
+          ["main.c"] = { count = 2, targets = { "utils.c" } },
         },
       }
 
       local dce_stats = {
         functions_removed = 2,
         functions_by_file = {
-          ["utils.c"] = {removed = {"helper1", "helper2"}, kept = {"add"}},
+          ["utils.c"] = { removed = { "helper1", "helper2" }, kept = { "add" } },
         },
       }
 
@@ -96,7 +134,7 @@ describe("LTO Phase 3 Integration", function()
 
   describe("Error handling", function()
     it("should handle missing files gracefully", function()
-      local success, result = lto.run_lto_pipeline({"nonexistent.c"}, "-O2", "")
+      local success, result = lto.run_lto_pipeline({ "nonexistent.c" }, "-O2", "")
 
       assert.is_false(success)
       assert.is_string(result)

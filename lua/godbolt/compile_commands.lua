@@ -193,7 +193,7 @@ function M.filter_relevant_flags(args)
 
     -- Skip input files (source files)
     if arg:match("%.c$") or arg:match("%.cpp$") or arg:match("%.cc$") or
-       arg:match("%.cxx$") or arg:match("%.C$") then
+        arg:match("%.cxx$") or arg:match("%.C$") then
       goto continue
     end
 

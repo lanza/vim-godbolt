@@ -13,7 +13,7 @@ describe("godbolt debug flag handling", function()
       clang = 'clang',
       opt = 'opt',
       line_mapping = {
-        enabled = false  -- Disable to avoid async issues in tests
+        enabled = false -- Disable to avoid async issues in tests
       }
     })
   end)
@@ -25,7 +25,7 @@ describe("godbolt debug flag handling", function()
     -- Clean up any created buffers/windows
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
       if vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_get_option(buf, 'buftype') == 'nofile' then
-        pcall(vim.api.nvim_buf_delete, buf, {force = true})
+        pcall(vim.api.nvim_buf_delete, buf, { force = true })
       end
     end
   end)
@@ -54,7 +54,7 @@ describe("godbolt debug flag handling", function()
     assert.is_not_nil(cmd:match("%-g"), "Command should contain -g flag for C files")
 
     -- Clean up
-    pcall(vim.api.nvim_buf_delete, buf, {force = true})
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
   end)
 
   it("should NOT add -g flag for LLVM IR files (opt)", function()
@@ -84,7 +84,7 @@ describe("godbolt debug flag handling", function()
     assert.is_not_nil(cmd:match("opt"), "Command should use opt for .ll files")
 
     -- Clean up
-    pcall(vim.api.nvim_buf_delete, buf, {force = true})
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
   end)
 
   it("should place -g at the end of arguments for C files", function()
@@ -118,7 +118,7 @@ describe("godbolt debug flag handling", function()
       assert.is_true(g_pos > o2_pos, "-g should come after user flags like -O2")
     end
 
-    pcall(vim.api.nvim_buf_delete, buf, {force = true})
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
   end)
 
   it("should warn about -g0 flag but still try to compile", function()
@@ -143,7 +143,7 @@ describe("godbolt debug flag handling", function()
     -- Should still have -g at the end
     assert.is_not_nil(cmd:match("%-g"), "Should still add -g even with -g0")
 
-    pcall(vim.api.nvim_buf_delete, buf, {force = true})
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
   end)
 
   it("should handle buffer comments with -emit-llvm", function()
@@ -165,7 +165,7 @@ describe("godbolt debug flag handling", function()
     assert.is_not_nil(cmd:match("%-emit%-llvm"), "Should include -emit-llvm from buffer comment")
     assert.is_not_nil(cmd:match("%-g"), "Should still add -g flag")
 
-    pcall(vim.api.nvim_buf_delete, buf, {force = true})
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
   end)
 end)
 

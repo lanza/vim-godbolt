@@ -4,14 +4,14 @@ local M = {}
 -- @param ir_lines: array of LLVM IR lines
 -- @return: table mapping metadata IDs to variable info {name, type_ref}
 local function parse_di_local_variables(ir_lines)
-  local var_map = {}  -- !10 -> {name="x", type="i32"}
+  local var_map = {} -- !10 -> {name="x", type="i32"}
 
   for _, line in ipairs(ir_lines) do
     -- Parse: !10 = !DILocalVariable(name: "x", scope: !11, file: !1, line: 5, type: !12)
     local id, name = line:match("^(![0-9]+)%s*=%s*!DILocalVariable%(.-name:%s*\"([^\"]+)\"")
 
     if id and name then
-      var_map[id] = {name = name}
+      var_map[id] = { name = name }
     end
   end
 
@@ -23,7 +23,7 @@ end
 -- @param var_map: table from parse_di_local_variables
 -- @return: table mapping SSA registers to variable names {"%5" -> "x"}
 local function map_ssa_to_variables(ir_lines, var_map)
-  local ssa_map = {}  -- %5 -> "x"
+  local ssa_map = {} -- %5 -> "x"
 
   for _, line in ipairs(ir_lines) do
     -- Match llvm.dbg.declare: call void @llvm.dbg.declare(metadata ptr %5, metadata !10, ...)
@@ -81,7 +81,7 @@ function M.annotate_variables(bufnr, ir_lines, full_ir_lines)
     if #annotations > 0 then
       local virt_text_parts = {}
       for _, ssa_reg in ipairs(annotations) do
-        table.insert(virt_text_parts, {" ; " .. ssa_reg .. " = " .. ssa_map[ssa_reg], "Comment"})
+        table.insert(virt_text_parts, { " ; " .. ssa_reg .. " = " .. ssa_map[ssa_reg], "Comment" })
       end
 
       pcall(vim.api.nvim_buf_set_extmark, bufnr, ns_id, line_num - 1, 0, {

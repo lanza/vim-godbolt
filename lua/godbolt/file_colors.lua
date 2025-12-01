@@ -17,14 +17,14 @@ local FILE_COLORS = {
 function M.setup_highlights()
   -- Define color palette for source files
   -- Using distinct but readable colors
-  vim.api.nvim_set_hl(0, "GodboltFile1", {fg = "#61AFEF", bold = true})  -- Blue
-  vim.api.nvim_set_hl(0, "GodboltFile2", {fg = "#98C379", bold = true})  -- Green
-  vim.api.nvim_set_hl(0, "GodboltFile3", {fg = "#E5C07B", bold = true})  -- Yellow
-  vim.api.nvim_set_hl(0, "GodboltFile4", {fg = "#C678DD", bold = true})  -- Purple
-  vim.api.nvim_set_hl(0, "GodboltFile5", {fg = "#E06C75", bold = true})  -- Red
-  vim.api.nvim_set_hl(0, "GodboltFile6", {fg = "#56B6C2", bold = true})  -- Cyan
-  vim.api.nvim_set_hl(0, "GodboltFile7", {fg = "#D19A66", bold = true})  -- Orange
-  vim.api.nvim_set_hl(0, "GodboltFile8", {fg = "#ABB2BF", bold = true})  -- Gray
+  vim.api.nvim_set_hl(0, "GodboltFile1", { fg = "#61AFEF", bold = true }) -- Blue
+  vim.api.nvim_set_hl(0, "GodboltFile2", { fg = "#98C379", bold = true }) -- Green
+  vim.api.nvim_set_hl(0, "GodboltFile3", { fg = "#E5C07B", bold = true }) -- Yellow
+  vim.api.nvim_set_hl(0, "GodboltFile4", { fg = "#C678DD", bold = true }) -- Purple
+  vim.api.nvim_set_hl(0, "GodboltFile5", { fg = "#E06C75", bold = true }) -- Red
+  vim.api.nvim_set_hl(0, "GodboltFile6", { fg = "#56B6C2", bold = true }) -- Cyan
+  vim.api.nvim_set_hl(0, "GodboltFile7", { fg = "#D19A66", bold = true }) -- Orange
+  vim.api.nvim_set_hl(0, "GodboltFile8", { fg = "#ABB2BF", bold = true }) -- Gray
 end
 
 -- Assign colors to source files

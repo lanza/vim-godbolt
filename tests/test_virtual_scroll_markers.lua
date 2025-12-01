@@ -50,9 +50,9 @@ local marker_specs = {
     description = "Module pass marker should update correctly in virtual scroll",
     setup = {
       passes = {
-        {index = 1, type = "module", name = "ModulePass1", changed = true},
-        {index = 2, type = "function", name = "FunctionPass", changed = false},
-        {index = 3, type = "module", name = "ModulePass2", changed = true},
+        { index = 1, type = "module",   name = "ModulePass1",  changed = true },
+        { index = 2, type = "function", name = "FunctionPass", changed = false },
+        { index = 3, type = "module",   name = "ModulePass2",  changed = true },
       },
       current_index = 1,
       virtual_scroll_enabled = true,
@@ -70,7 +70,7 @@ local marker_specs = {
     setup = {
       total_passes = 5000,
       current_index = 2500,
-      cursor_line = 30,  -- Middle of 60-line viewport
+      cursor_line = 30, -- Middle of 60-line viewport
       virtual_scroll_enabled = true,
     },
     action = "Press k to navigate to line 29",

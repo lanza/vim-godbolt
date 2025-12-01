@@ -5,7 +5,12 @@ describe("pipeline parser", function()
   describe("single function tests", function()
     it("parses single function with one pass", function()
       local test_file = vim.fn.fnamemodify("tests/fixtures/single_func.ll", ":p")
-      local passes = pipeline.run_pipeline(test_file, "sroa")
+
+      local passes
+      pipeline.run_pipeline(test_file, "sroa", {}, function(result)
+        passes = result
+      end)
+      vim.wait(5000, function() return passes ~= nil end)
 
       -- Should have: sroa on simple (NO Input pass)
       assert.is_not_nil(passes)
@@ -22,7 +27,12 @@ describe("pipeline parser", function()
 
     it("parses single function with multiple passes", function()
       local test_file = vim.fn.fnamemodify("tests/fixtures/single_func.ll", ":p")
-      local passes = pipeline.run_pipeline(test_file, "sroa,instcombine")
+
+      local passes
+      pipeline.run_pipeline(test_file, "sroa,instcombine", {}, function(result)
+        passes = result
+      end)
+      vim.wait(5000, function() return passes ~= nil end)
 
       -- Should have: sroa + instcombine (NO Input)
       assert.is_not_nil(passes)
@@ -36,7 +46,12 @@ describe("pipeline parser", function()
   describe("two function tests", function()
     it("parses two functions with function passes - THE KEY TEST", function()
       local test_file = vim.fn.fnamemodify("tests/fixtures/two_funcs.ll", ":p")
-      local passes = pipeline.run_pipeline(test_file, "sroa,instcombine")
+
+      local passes
+      pipeline.run_pipeline(test_file, "sroa,instcombine", {}, function(result)
+        passes = result
+      end)
+      vim.wait(5000, function() return passes ~= nil end)
 
       -- Should have: sroa-foo, instcombine-foo, sroa-bar, instcombine-bar (NO Input)
       assert.is_not_nil(passes)
@@ -67,7 +82,12 @@ describe("pipeline parser", function()
 
     it("cleans metadata from IR", function()
       local test_file = vim.fn.fnamemodify("tests/fixtures/two_funcs.ll", ":p")
-      local passes = pipeline.run_pipeline(test_file, "sroa")
+
+      local passes
+      pipeline.run_pipeline(test_file, "sroa", {}, function(result)
+        passes = result
+      end)
+      vim.wait(5000, function() return passes ~= nil end)
 
       assert.is_not_nil(passes)
       for _, pass in ipairs(passes) do
@@ -83,8 +103,12 @@ describe("pipeline parser", function()
   describe("parser edge cases", function()
     it("handles passes that don't modify IR", function()
       local test_file = vim.fn.fnamemodify("tests/fixtures/single_func.ll", ":p")
-      -- Run a pass that won't change already-optimized code
-      local passes = pipeline.run_pipeline(test_file, "sroa,sroa")
+
+      local passes
+      pipeline.run_pipeline(test_file, "sroa,sroa", {}, function(result)
+        passes = result
+      end)
+      vim.wait(5000, function() return passes ~= nil end)
 
       assert.is_not_nil(passes)
       -- Should still have all stages even if IR doesn't change
