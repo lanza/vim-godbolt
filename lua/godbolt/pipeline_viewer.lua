@@ -1787,34 +1787,58 @@ function M.show_remarks_popup()
 end
 
 function M.update_pass_list_cursor(old_index, new_index)
-  -- Update selection highlighting (uses separate namespace, very fast)
-  M.update_selection_highlighting()
-
   -- Move cursor to the selected line
   local line_map = M.state.pass_list_line_map
   if not line_map then return end
+
+  -- For function/loop/cgscc passes, ensure their group is unfolded
+  local target_pass = M.state.passes[new_index]
+  if target_pass and (target_pass.scope_type == "function" or target_pass.scope_type == "cgscc" or target_pass.scope_type == "loop") then
+    -- Find which group this pass belongs to
+    local groups = M.state.grouped_passes
+    if groups then
+      for group_idx, group in ipairs(groups) do
+        if group.type == "function_group" or group.type == "cgscc_group" then
+          if group.functions then
+            for _, fn in ipairs(group.functions) do
+              if fn.original_index == new_index then
+                -- Found the group containing this pass
+                if group.folded then
+                  -- Unfold it
+                  group.folded = false
+                  M.populate_pass_list() -- Rebuild to show function entries
+                  line_map = M.state.pass_list_line_map -- Get updated line_map
+                end
+                break
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+
+  -- Clear the on_group_header flag so we move to the function entry, not the group header
+  M.state.on_group_header = false
 
   -- Find the line corresponding to new_index
   for line_idx, info in pairs(line_map) do
     if info.type == "module" and info.original_index == new_index then
       pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, { line_idx, 0 })
+      -- Update selection highlighting AFTER unfolding and cursor positioning
+      M.update_selection_highlighting()
       return
     elseif info.type == "function_entry" and info.original_index == new_index then
-      -- If on group header, move to group header; otherwise move to function entry
-      if M.state.on_group_header then
-        -- Find the group header for this function
-        for header_line_idx, header_info in pairs(line_map) do
-          if header_info.type == "group_header" and header_info.group_idx == info.group_idx then
-            pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, { header_line_idx, 0 })
-            return
-          end
-        end
-      else
-        pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, { line_idx, 0 })
-        return
-      end
+      -- Move to function entry (not group header)
+      pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, { line_idx, 0 })
+      -- Update selection highlighting AFTER unfolding and cursor positioning
+      M.update_selection_highlighting()
+      return
     end
   end
+
+  -- If we didn't find the line, still update highlighting
+  M.update_selection_highlighting()
 end
 
 -- Show statistics for current pass
@@ -2058,6 +2082,15 @@ local function goto_next_changed_pass_line()
 
   if not line_map then return end
 
+  -- Determine which group we're currently in (if any)
+  local current_group_idx = nil
+  local current_info = line_map[current_line]
+  if current_info then
+    if current_info.type == "function_entry" or current_info.type == "group_header" then
+      current_group_idx = current_info.group_idx
+    end
+  end
+
   -- Find next pass line that corresponds to a changed pass
   local total_lines = vim.api.nvim_buf_line_count(M.state.pass_list_bufnr)
   for i = current_line + 1, total_lines do
@@ -2065,6 +2098,11 @@ local function goto_next_changed_pass_line()
     if not line_info then goto continue end
 
     if line_info.type == "group_header" then
+      -- Skip the header for our current group - we want to go AFTER it
+      if current_group_idx and line_info.group_idx == current_group_idx then
+        goto continue
+      end
+
       -- Check if any function in this group has changes
       local group = groups[line_info.group_idx]
       if group and (group.type == "function_group" or group.type == "cgscc_group") and group.functions then
@@ -2110,6 +2148,11 @@ local function goto_next_changed_pass_line()
         return
       end
     elseif line_info.type == "function_entry" then
+      -- Skip function entries from our current group
+      if current_group_idx and line_info.group_idx == current_group_idx then
+        goto continue
+      end
+
       -- Check if this function pass is changed
       if is_pass_changed(line_info.original_index) then
         vim.api.nvim_win_set_cursor(M.state.pass_list_winid, { i, 0 })
@@ -2135,12 +2178,26 @@ local function goto_prev_changed_pass_line()
 
   if not line_map then return end
 
+  -- Determine which group we're currently in (if any)
+  local current_group_idx = nil
+  local current_info = line_map[current_line]
+  if current_info then
+    if current_info.type == "function_entry" or current_info.type == "group_header" then
+      current_group_idx = current_info.group_idx
+    end
+  end
+
   -- Find previous pass line that corresponds to a changed pass
   for i = current_line - 1, 1, -1 do
     local line_info = line_map[i]
     if not line_info then goto continue end
 
     if line_info.type == "group_header" then
+      -- Skip the header for our current group - we want to go BEFORE it
+      if current_group_idx and line_info.group_idx == current_group_idx then
+        goto continue
+      end
+
       -- Check if any function in this group has changes
       local group = groups[line_info.group_idx]
       if group and (group.type == "function_group" or group.type == "cgscc_group") and group.functions then
@@ -2186,6 +2243,11 @@ local function goto_prev_changed_pass_line()
         return
       end
     elseif line_info.type == "function_entry" then
+      -- Skip function entries from our current group
+      if current_group_idx and line_info.group_idx == current_group_idx then
+        goto continue
+      end
+
       -- Check if this function pass is changed
       if is_pass_changed(line_info.original_index) then
         vim.api.nvim_win_set_cursor(M.state.pass_list_winid, { i, 0 })
@@ -2313,8 +2375,8 @@ function M.setup_keymaps()
   -- Pass list navigation
   set_keymap(keymaps.next_pass, goto_next_pass_line, 'Next pass')
   set_keymap(keymaps.prev_pass, goto_prev_pass_line, 'Previous pass')
-  set_keymap(keymaps.next_changed, goto_next_changed_pass_line, 'Next changed pass')
-  set_keymap(keymaps.prev_changed, goto_prev_changed_pass_line, 'Previous changed pass')
+  set_keymap(keymaps.next_changed, function() M.next_pass() end, 'Next changed pass (pipeline order)')
+  set_keymap(keymaps.prev_changed, function() M.prev_pass() end, 'Previous changed pass (pipeline order)')
 
   -- Folding
   set_keymap(keymaps.toggle_fold, function() M.toggle_fold_under_cursor() end, 'Toggle fold')
