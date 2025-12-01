@@ -251,8 +251,9 @@ function M.run_lto_pipeline(source_files, opt_level, extra_args)
   -- -fno-discard-value-names: Keep SSA value names for readability
   -- -fstandalone-debug: Complete debug info (not minimal)
   -- -Wl,-mllvm,-print-changed: Only print IR when passes change it
+  -- -Wl,-mllvm,-print-module-scope: Always print full module IR (not just function fragments)
   local cmd = string.format(
-    '%s -flto -g -fno-discard-value-names -fstandalone-debug %s %s -Wl,-mllvm,-print-changed %s -o "%s" 2>&1',
+    '%s -flto -g -fno-discard-value-names -fstandalone-debug %s %s -Wl,-mllvm,-print-changed -Wl,-mllvm,-print-module-scope %s -o "%s" 2>&1',
     compiler,
     opt_level,
     extra_args,

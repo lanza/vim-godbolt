@@ -1017,31 +1017,23 @@ function M.godbolt_lto_pipeline(file_list, args_str, opts)
 
   -- Parse passes from LTO output (reuse existing parser!)
   -- Use "clang" source_type to avoid stopping at ModuleID (LTO has ModuleID in every dump)
-  local passes, initial_ir = pipeline.parse_pipeline_output(pipeline_output, "clang")
+  local result = pipeline.parse_pipeline_lazy(pipeline_output, "clang")
 
-  -- For LTO, we MUST prepend the initial IR as pass 0 because:
-  -- 1. Multiple source files (can't cache by single filename like clang pipeline does)
-  -- 2. Viewer needs the merged module state to extract functions for "before" diffs
-  -- 3. The initial_ir comes from -print-before-pass-number=1 and contains the merged module
-  if initial_ir and #initial_ir > 0 then
-    table.insert(passes, 1, {
-      name = "Input (before LTO)",
-      scope_type = "module",
-      scope_target = "[module]",
-      ir = initial_ir,
-    })
-    if M.config.pipeline.debug then
-      print(string.format("[LTO Pipeline Debug] Prepended initial IR as pass 0 (%d lines)", #initial_ir))
-    end
-  end
-
-  if not passes or #passes == 0 then
+  if not result.passes or #result.passes == 0 then
     print("[LTO Pipeline] No optimization passes captured")
     print("[LTO Pipeline] This might happen if:")
     print("  - Compilation failed")
     print("  - No optimizations were performed")
     print("  - Output format was unexpected")
     return
+  end
+
+  -- Resolve ir_or_index to .ir for all passes (following pattern from pipeline.lua)
+  pipeline.ir_resolver.clear_cache()
+  local passes = result.passes
+  for i, pass in ipairs(passes) do
+    pass._initial_ir = result.initial_ir
+    pass.ir = pipeline.ir_resolver.get_after_ir(passes, result.initial_ir, i)
   end
 
   print(string.format("[LTO Pipeline] Captured %d pass stages", #passes))
