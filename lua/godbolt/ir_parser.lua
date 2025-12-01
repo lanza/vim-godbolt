@@ -84,13 +84,48 @@ function M.extract_function(ir_lines, func_name)
       local func_text = vim.treesitter.get_node_text(node, ir_text)
       if func_text == search_name then
         -- Found the function, now get its parent fn_define node
-        -- The captures iterate in order, so next capture with name func_def is ours
-        -- Actually, we need to get the fn_define parent of this node
         local fn_define = node:parent():parent() -- global_var -> function_header -> fn_define
-        local fn_text = vim.treesitter.get_node_text(fn_define, ir_text)
+        local start_row, _, end_row, end_col = fn_define:range()
 
-        -- Convert back to lines
-        return vim.split(fn_text, "\n", { plain = true })
+        -- Split IR into lines to find comment lines before the function
+        local all_lines = vim.split(ir_text, "\n", { plain = true })
+
+        -- Walk backwards from start_row to find comment lines immediately before the function
+        -- We want to include lines like "; Function Attrs: ..." that appear right before define
+        local comment_lines = {}
+        local row = start_row -- start_row is 0-indexed
+
+        while row > 0 do
+          row = row - 1
+          local line = all_lines[row + 1] -- Convert 0-indexed row to 1-indexed Lua array
+
+          if line:match("^%s*;") then
+            -- This is a comment line - add to beginning of comment_lines
+            table.insert(comment_lines, 1, line)
+          elseif line:match("^%s*$") then
+            -- Blank line - continue searching backwards (don't break the chain)
+          else
+            -- Non-comment, non-blank line - stop searching
+            break
+          end
+        end
+
+        -- Extract function lines (start_row is 0-indexed, Lua arrays are 1-indexed)
+        local func_lines = {}
+        for i = start_row + 1, end_row + 1 do
+          table.insert(func_lines, all_lines[i])
+        end
+
+        -- Combine comment lines and function lines
+        local result = {}
+        for _, line in ipairs(comment_lines) do
+          table.insert(result, line)
+        end
+        for _, line in ipairs(func_lines) do
+          table.insert(result, line)
+        end
+
+        return result
       end
     end
   end
