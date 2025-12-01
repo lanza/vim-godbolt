@@ -16,7 +16,7 @@ M.state = {
   passes = {},
   current_index = 1,
   source_bufnr = nil,
-  input_file = nil,  -- Path to input .ll file
+  input_file = nil, -- Path to input .ll file
   pass_list_bufnr = nil,
   before_bufnr = nil,
   after_bufnr = nil,
@@ -25,13 +25,13 @@ M.state = {
   after_winid = nil,
   config = nil,
   ns_id = vim.api.nvim_create_namespace('godbolt_pipeline'),
-  ns_selection = vim.api.nvim_create_namespace('godbolt_pipeline_selection'),  -- Separate namespace for selection highlighting
-  ns_hints = vim.api.nvim_create_namespace('godbolt_remarks_hints'),  -- Namespace for inline hints
-  inline_hints_enabled = true,  -- Track if inline hints are currently shown
-  grouped_passes = nil,  -- Grouped/folded pass structure
-  module_pass_indices = nil,  -- OPTIMIZATION: Index of module pass positions {5, 23, 107, ...}
-  on_group_header = false,  -- Track if we're on a group header (don't show function marker)
-  num_width = nil,  -- Width of pass numbers (computed once from #groups)
+  ns_selection = vim.api.nvim_create_namespace('godbolt_pipeline_selection'), -- Separate namespace for selection highlighting
+  ns_hints = vim.api.nvim_create_namespace('godbolt_remarks_hints'),          -- Namespace for inline hints
+  inline_hints_enabled = true,                                                -- Track if inline hints are currently shown
+  grouped_passes = nil,                                                       -- Grouped/folded pass structure
+  module_pass_indices = nil,                                                  -- OPTIMIZATION: Index of module pass positions {5, 23, 107, ...}
+  on_group_header = false,                                                    -- Track if we're on a group header (don't show function marker)
+  num_width = nil,                                                            -- Width of pass numbers (computed once from #groups)
 }
 
 -- Setup pipeline viewer with 3-pane layout
@@ -48,7 +48,7 @@ function M.setup(source_bufnr, input_file, passes, config)
   -- Default config
   local default_config = {
     show_stats = true,
-    start_at_final = false,  -- Start at first pass to see initial changes
+    start_at_final = false, -- Start at first pass to see initial changes
     filter_unchanged = false,
   }
   config = vim.tbl_deep_extend("force", default_config, config)
@@ -79,16 +79,8 @@ function M.setup(source_bufnr, input_file, passes, config)
     end
   end
 
-  -- t = (vim.loop.hrtime() - setup_start) / 1e9
-  -- print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Creating layout", t))
-
-  -- Create 3-pane layout FIRST (show UI immediately, before any stats computation!)
   M.create_layout()
 
-  -- t = (vim.loop.hrtime() - setup_start) / 1e9
-  -- print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Layout created, showing placeholder", t))
-
-  -- Show "Computing..." message in pass list
   vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', true)
   vim.api.nvim_buf_set_lines(M.state.pass_list_bufnr, 0, -1, false, {
     string.format("Optimization Pipeline (%d passes)", #passes),
@@ -98,27 +90,12 @@ function M.setup(source_bufnr, input_file, passes, config)
   })
   vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', false)
 
-  -- t = (vim.loop.hrtime() - setup_start) / 1e9
-  -- print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Setting up keymaps", t))
-
-  -- Set up key mappings early
   M.setup_keymaps()
 
-  -- t = (vim.loop.hrtime() - setup_start) / 1e9
-  -- print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Scheduling async computation", t))
-
-  -- Defer ALL heavy computation to async chunks to avoid UI freeze
   vim.schedule(function()
-    -- local async_start = vim.loop.hrtime()
-    -- print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Starting compute_stats_async", (async_start - setup_start) / 1e9))
-
-    -- OPTIMIZATION: Compute stats asynchronously in chunks to avoid UI freeze
+    -- Compute stats asynchronously in chunks to avoid UI freeze
     -- Previously this was a synchronous loop causing 3-8 second freeze
     M.compute_stats_async(function()
-      -- local stats_done = vim.loop.hrtime()
-      -- print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Stats complete, starting compute_pass_changes", (stats_done - setup_start) / 1e9))
-
-      -- Update message
       vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', true)
       vim.api.nvim_buf_set_lines(M.state.pass_list_bufnr, 3, 4, false, {
         "⏳ Computing pass changes...",
@@ -128,7 +105,6 @@ function M.setup(source_bufnr, input_file, passes, config)
       -- Pre-compute which passes actually changed IR (async with callback)
       M.compute_pass_changes(function()
         local changes_done = vim.loop.hrtime()
-        -- print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Pass changes complete, finding first changed", (changes_done - setup_start) / 1e9))
 
         -- IMPORTANT: Clear grouped_passes cache so has_changes is recomputed with updated pass.changed values
         -- Without this, has_changes may be stale from earlier (pre-compute_pass_changes) grouping
@@ -155,23 +131,12 @@ function M.setup(source_bufnr, input_file, passes, config)
           end
         end
 
-        -- local t = (vim.loop.hrtime() - setup_start) / 1e9
-        -- print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Building pass list...", t))
-
-        -- Populate pass list
         M.populate_pass_list()
 
-        -- t = (vim.loop.hrtime() - setup_start) / 1e9
-        -- print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Loading initial diff...", t))
-
-        -- Show initial diff
         M.show_diff(M.state.current_index)
 
         -- Position cursor on first pass entry (header + separator + blank + first pass = line 4)
-        pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, {4, 0})
-
-        -- t = (vim.loop.hrtime() - setup_start) / 1e9
-        -- print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] ✓ Ready", t))
+        pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, { 4, 0 })
       end)
     end)
   end)
@@ -247,7 +212,7 @@ end
 -- @return: grouped_passes array with fold state
 function M.group_passes()
   local groups = {}
-  local open_groups = {}  -- Function groups that can still accept new functions
+  local open_groups = {} -- Function groups that can still accept new functions
 
   for i, pass in ipairs(M.state.passes) do
     if pass.scope_type == "module" then
@@ -271,7 +236,7 @@ function M.group_passes()
       -- Check if any open group can accept this pass
       for _, open_group in ipairs(open_groups) do
         if open_group.pass_name == pass_name and
-           open_group.scope_type == pass.scope_type then
+            open_group.scope_type == pass.scope_type then
           -- Check if this target already exists in the group
           local target_exists = false
           for _, fn in ipairs(open_group.functions) do
@@ -301,11 +266,11 @@ function M.group_passes()
           type = group_type,
           pass_name = pass_name,
           scope_type = pass.scope_type,
-          functions = {{
+          functions = { {
             target = pass.scope_target,
             pass = pass,
             original_index = i,
-          }},
+          } },
           folded = true,
         }
         table.insert(open_groups, new_group)
@@ -343,8 +308,8 @@ function M.group_passes()
         end
       end
 
-      group.has_changes = has_changes  -- Store for highlighting
-      group.folded = true  -- Always start folded
+      group.has_changes = has_changes -- Store for highlighting
+      group.folded = true             -- Always start folded
 
       -- DEBUG: Print ALL functions in small groups (<=5), sample for larger groups
       if total_count <= 5 then
@@ -358,10 +323,10 @@ function M.group_passes()
           table.insert(sample, all_fn_info[i])
         end
         -- print(string.format("[DEBUG] Group '%s' marked UNCHANGED but has %d functions: [%s...]",
-          -- group.pass_name, total_count, table.concat(sample, ", ")))
+        -- group.pass_name, total_count, table.concat(sample, ", ")))
       elseif has_changes then
         -- print(string.format("[DEBUG] Group '%s' marked CHANGED (%d/%d functions)",
-          -- group.pass_name, changed_count, total_count))
+        -- group.pass_name, changed_count, total_count))
       end
 
       -- Sort functions within group: changed first, then by original order
@@ -392,16 +357,16 @@ function M.populate_pass_list()
 
   local groups = M.state.grouped_passes
   local lines = {}
-  local line_map = {}  -- Map line number -> {type, group_idx, fn_idx, original_index}
+  local line_map = {} -- Map line number -> {type, group_idx, fn_idx, original_index}
   local header = string.format("Optimization Pipeline (%d passes, %d groups)", #M.state.passes, #groups)
   table.insert(lines, header)
-  line_map[#lines] = {type = "header"}
+  line_map[#lines] = { type = "header" }
 
   table.insert(lines, string.rep("-", #header))
-  line_map[#lines] = {type = "separator"}
+  line_map[#lines] = { type = "separator" }
 
   table.insert(lines, "")
-  line_map[#lines] = {type = "blank"}
+  line_map[#lines] = { type = "blank" }
 
   -- Calculate number width based on total groups (store for reuse)
   M.state.num_width = #tostring(#groups)
@@ -414,9 +379,9 @@ function M.populate_pass_list()
       local i = group.original_index
       local marker = (i == M.state.current_index) and ">" or " "
 
-      local line = string.format("%s%"..num_width.."d. [M] %s", marker, group.display_index, pass.name)
+      local line = string.format("%s%" .. num_width .. "d. [M] %s", marker, group.display_index, pass.name)
       table.insert(lines, line)
-      line_map[#lines] = {type = "module", group_idx = group_idx, original_index = i}
+      line_map[#lines] = { type = "module", group_idx = group_idx, original_index = i }
 
       -- Add stats if configured
       if M.state.config.show_stats and i > 1 then
@@ -442,14 +407,13 @@ function M.populate_pass_list()
           end
           if #stats_parts > 0 then
             table.insert(lines, "     D: " .. table.concat(stats_parts, ", "))
-            line_map[#lines] = {type = "module_stats", group_idx = group_idx, original_index = i}
+            line_map[#lines] = { type = "module_stats", group_idx = group_idx, original_index = i }
           end
         elseif pass.changed and pass.diff_stats and pass.diff_stats.lines_changed > 0 then
           table.insert(lines, string.format("     D: Δ%d lines", pass.diff_stats.lines_changed))
-          line_map[#lines] = {type = "module_stats", group_idx = group_idx, original_index = i}
+          line_map[#lines] = { type = "module_stats", group_idx = group_idx, original_index = i }
         end
       end
-
     else
       -- Function/CGSCC group
       local fold_icon = group.folded and "▸" or "▾"
@@ -467,11 +431,11 @@ function M.populate_pass_list()
       local marker = any_selected and ">" or " "
 
       -- Format: " 5. ▸ [F] PassName (N functions)" - aligned with module passes
-      local line = string.format("%s%"..num_width.."d. %s [%s] %s (%d %s)",
+      local line = string.format("%s%" .. num_width .. "d. %s [%s] %s (%d %s)",
         marker, group.display_index, fold_icon, scope_icon, group.pass_name, func_count,
         func_count == 1 and "function" or "functions")
       table.insert(lines, line)
-      line_map[#lines] = {type = "group_header", group_idx = group_idx}
+      line_map[#lines] = { type = "group_header", group_idx = group_idx }
 
       -- If unfolded, show function list
       if not group.folded then
@@ -481,7 +445,13 @@ function M.populate_pass_list()
           local indent = string.rep(" ", 1 + num_width + 2)
           local fn_line = string.format("%s%s   %s", indent, fn_marker, fn.target)
           table.insert(lines, fn_line)
-          line_map[#lines] = {type = "function_entry", group_idx = group_idx, fn_idx = fn_idx, original_index = fn.original_index}
+          line_map[#lines] = {
+            type = "function_entry",
+            group_idx = group_idx,
+            fn_idx = fn_idx,
+            original_index = fn
+                .original_index
+          }
 
           -- Add stats for this function's pass
           if M.state.config.show_stats and fn.original_index > 1 then
@@ -507,11 +477,23 @@ function M.populate_pass_list()
               end
               if #stats_parts > 0 then
                 table.insert(lines, "       D: " .. table.concat(stats_parts, ", "))
-                line_map[#lines] = {type = "function_stats", group_idx = group_idx, fn_idx = fn_idx, original_index = fn.original_index}
+                line_map[#lines] = {
+                  type = "function_stats",
+                  group_idx = group_idx,
+                  fn_idx = fn_idx,
+                  original_index = fn
+                      .original_index
+                }
               end
             elseif pass.changed and pass.diff_stats and pass.diff_stats.lines_changed > 0 then
               table.insert(lines, string.format("       D: Δ%d lines", pass.diff_stats.lines_changed))
-              line_map[#lines] = {type = "function_stats", group_idx = group_idx, fn_idx = fn_idx, original_index = fn.original_index}
+              line_map[#lines] = {
+                type = "function_stats",
+                group_idx = group_idx,
+                fn_idx = fn_idx,
+                original_index = fn
+                    .original_index
+              }
             end
           end
         end
@@ -520,11 +502,11 @@ function M.populate_pass_list()
   end
 
   table.insert(lines, "")
-  line_map[#lines] = {type = "footer"}
+  line_map[#lines] = { type = "footer" }
   table.insert(lines, "Legend: [M]=Module [F]=Function [C]=CGSCC")
-  line_map[#lines] = {type = "footer"}
+  line_map[#lines] = { type = "footer" }
   table.insert(lines, "Keys: j/k=nav, R=remarks, gR=all, gh=hints, g?=help, q=quit")
-  line_map[#lines] = {type = "footer"}
+  line_map[#lines] = { type = "footer" }
 
   vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', true)
   vim.api.nvim_buf_set_lines(M.state.pass_list_bufnr, 0, -1, false, lines)
@@ -545,39 +527,39 @@ local function setup_highlight_groups()
   local bg = vim.o.background
 
   -- Fold icons
-  vim.api.nvim_set_hl(0, "GodboltPipelineFoldIcon", {link = "Special"})
+  vim.api.nvim_set_hl(0, "GodboltPipelineFoldIcon", { link = "Special" })
 
   -- Group headers (function/CGSCC groups) - use same color as module pass names
-  vim.api.nvim_set_hl(0, "GodboltPipelineGroupHeader", {link = "Identifier"})
+  vim.api.nvim_set_hl(0, "GodboltPipelineGroupHeader", { link = "Identifier" })
   if bg == "dark" then
-    vim.api.nvim_set_hl(0, "GodboltPipelineGroupCount", {fg = "#88c0d0", italic = true})
+    vim.api.nvim_set_hl(0, "GodboltPipelineGroupCount", { fg = "#88c0d0", italic = true })
   else
-    vim.api.nvim_set_hl(0, "GodboltPipelineGroupCount", {fg = "#81a1c1", italic = true})
+    vim.api.nvim_set_hl(0, "GodboltPipelineGroupCount", { fg = "#81a1c1", italic = true })
   end
 
   -- Function entries (indented)
-  vim.api.nvim_set_hl(0, "GodboltPipelineFunctionEntry", {link = "String"})
+  vim.api.nvim_set_hl(0, "GodboltPipelineFunctionEntry", { link = "String" })
 
   -- Selected marker
   if bg == "dark" then
-    vim.api.nvim_set_hl(0, "GodboltPipelineSelectedMarker", {fg = "#bf616a", bold = true})
+    vim.api.nvim_set_hl(0, "GodboltPipelineSelectedMarker", { fg = "#bf616a", bold = true })
   else
-    vim.api.nvim_set_hl(0, "GodboltPipelineSelectedMarker", {fg = "#d08770", bold = true})
+    vim.api.nvim_set_hl(0, "GodboltPipelineSelectedMarker", { fg = "#d08770", bold = true })
   end
 
   -- Pass numbers
-  vim.api.nvim_set_hl(0, "GodboltPipelinePassNumber", {link = "Number"})
+  vim.api.nvim_set_hl(0, "GodboltPipelinePassNumber", { link = "Number" })
 
   -- Scope indicators [M], [F], [C]
-  vim.api.nvim_set_hl(0, "GodboltPipelineScopeModule", {link = "Type"})
-  vim.api.nvim_set_hl(0, "GodboltPipelineScopeFunction", {link = "Function"})
-  vim.api.nvim_set_hl(0, "GodboltPipelineScopeCGSCC", {link = "Keyword"})
+  vim.api.nvim_set_hl(0, "GodboltPipelineScopeModule", { link = "Type" })
+  vim.api.nvim_set_hl(0, "GodboltPipelineScopeFunction", { link = "Function" })
+  vim.api.nvim_set_hl(0, "GodboltPipelineScopeCGSCC", { link = "Keyword" })
 
   -- Pass names
-  vim.api.nvim_set_hl(0, "GodboltPipelinePassName", {link = "Identifier"})
+  vim.api.nvim_set_hl(0, "GodboltPipelinePassName", { link = "Identifier" })
 
   -- Unchanged passes (grayed out)
-  vim.api.nvim_set_hl(0, "GodboltPipelineUnchanged", {link = "Comment"})
+  vim.api.nvim_set_hl(0, "GodboltPipelineUnchanged", { link = "Comment" })
 end
 
 -- Apply syntax highlighting to the pass list buffer
@@ -596,30 +578,25 @@ function M.apply_pass_list_highlights()
   setup_highlight_groups()
   vim.api.nvim_buf_clear_namespace(bufnr, ns_id, 0, -1)
 
-  local num_width = M.state.num_width  -- Use cached value
+  local num_width = M.state.num_width -- Use cached value
   local line_count = vim.api.nvim_buf_line_count(bufnr)
 
   for line_idx = 1, line_count do
-    local line_num = line_idx - 1  -- 0-indexed for API
+    local line_num = line_idx - 1 -- 0-indexed for API
     local info = line_map[line_idx]
 
     if not info then
       -- No line_map entry, skip
     elseif info.type == "header" then
-      vim.hl.range(bufnr, ns_id, "Title", {line_num, 0}, {line_num, -1})
-
+      vim.hl.range(bufnr, ns_id, "Title", { line_num, 0 }, { line_num, -1 })
     elseif info.type == "separator" then
-      vim.hl.range(bufnr, ns_id, "Comment", {line_num, 0}, {line_num, -1})
-
+      vim.hl.range(bufnr, ns_id, "Comment", { line_num, 0 }, { line_num, -1 })
     elseif info.type == "blank" then
       -- No highlighting
-
     elseif info.type == "footer" then
-      vim.hl.range(bufnr, ns_id, "Comment", {line_num, 0}, {line_num, -1})
-
+      vim.hl.range(bufnr, ns_id, "Comment", { line_num, 0 }, { line_num, -1 })
     elseif info.type == "module_stats" or info.type == "function_stats" then
-      vim.hl.range(bufnr, ns_id, "Comment", {line_num, 0}, {line_num, -1})
-
+      vim.hl.range(bufnr, ns_id, "Comment", { line_num, 0 }, { line_num, -1 })
     elseif info.type == "module" then
       -- Module pass line: " 1. [M] PassName"
       local pass = M.state.passes[info.original_index]
@@ -627,8 +604,8 @@ function M.apply_pass_list_highlights()
       -- Pass number (skip marker at column 0)
       -- Format: ">NNN." where N is digit, marker is col 0, first digit starts at col 1
       local num_start = 1
-      local num_end = num_start + num_width  -- exclusive
-      vim.hl.range(bufnr, ns_id, "GodboltPipelinePassNumber", {line_num, num_start}, {line_num, num_end})
+      local num_end = num_start + num_width -- exclusive
+      vim.hl.range(bufnr, ns_id, "GodboltPipelinePassNumber", { line_num, num_start }, { line_num, num_end })
 
       -- Get line content for pattern matching
       local line = vim.api.nvim_buf_get_lines(bufnr, line_num, line_num + 1, false)[1]
@@ -637,46 +614,45 @@ function M.apply_pass_list_highlights()
       local scope_col = line:find("%[M%]")
       if scope_col then
         -- scope_col is 1-indexed position of '[', highlight '[M]' (3 chars), exclusive end
-        vim.hl.range(bufnr, ns_id, "GodboltPipelineScopeModule", {line_num, scope_col - 1}, {line_num, scope_col + 2})
+        vim.hl.range(bufnr, ns_id, "GodboltPipelineScopeModule", { line_num, scope_col - 1 }, { line_num, scope_col + 2 })
       end
 
       -- Pass name starts after "[M] "
-      local name_start = scope_col and (scope_col + 3) or (1 + num_width + 3)  -- after ". [M] "
+      local name_start = scope_col and (scope_col + 3) or (1 + num_width + 3) -- after ". [M] "
       if pass.changed then
         -- Look for " on " to split highlighting
         local on_pos = line:find(" on ", name_start, true)
         if on_pos then
-          vim.hl.range(bufnr, ns_id, "GodboltPipelinePassName", {line_num, name_start}, {line_num, on_pos - 1})
-          vim.hl.range(bufnr, ns_id, "Special", {line_num, on_pos - 1}, {line_num, on_pos + 3})
-          vim.hl.range(bufnr, ns_id, "String", {line_num, on_pos + 3}, {line_num, -1})
+          vim.hl.range(bufnr, ns_id, "GodboltPipelinePassName", { line_num, name_start }, { line_num, on_pos - 1 })
+          vim.hl.range(bufnr, ns_id, "Special", { line_num, on_pos - 1 }, { line_num, on_pos + 3 })
+          vim.hl.range(bufnr, ns_id, "String", { line_num, on_pos + 3 }, { line_num, -1 })
         else
-          vim.hl.range(bufnr, ns_id, "GodboltPipelinePassName", {line_num, name_start}, {line_num, -1})
+          vim.hl.range(bufnr, ns_id, "GodboltPipelinePassName", { line_num, name_start }, { line_num, -1 })
         end
       else
-        vim.hl.range(bufnr, ns_id, "GodboltPipelineUnchanged", {line_num, name_start}, {line_num, -1})
+        vim.hl.range(bufnr, ns_id, "GodboltPipelineUnchanged", { line_num, name_start }, { line_num, -1 })
       end
-
     elseif info.type == "group_header" then
       -- Group header: " 109. ▸ [F] PassName (N functions)"
       local group = groups[info.group_idx]
 
       -- Pass number (skip marker at column 0)
       local num_start = 1
-      local num_end = num_start + num_width  -- exclusive
-      vim.hl.range(bufnr, ns_id, "GodboltPipelinePassNumber", {line_num, num_start}, {line_num, num_end})
+      local num_end = num_start + num_width -- exclusive
+      vim.hl.range(bufnr, ns_id, "GodboltPipelinePassNumber", { line_num, num_start }, { line_num, num_end })
 
       -- Fold icon ▸ or ▾ - UTF-8 char is 3 bytes
       -- Position: after ">NNN. " = 1 + num_width + 2
       local fold_start = 1 + num_width + 2
-      local fold_end = fold_start + 3  -- 3 bytes, exclusive end
-      vim.hl.range(bufnr, ns_id, "GodboltPipelineFoldIcon", {line_num, fold_start}, {line_num, fold_end})
+      local fold_end = fold_start + 3 -- 3 bytes, exclusive end
+      vim.hl.range(bufnr, ns_id, "GodboltPipelineFoldIcon", { line_num, fold_start }, { line_num, fold_end })
 
       -- Scope indicator [F] or [C]
       -- Position: after ">NNN. ▸ " = 1 + num_width + 2 + 3 + 1 = num_width + 7
       local scope_start = 1 + num_width + 2 + 3 + 1
-      local scope_end = scope_start + 3  -- "[F]" is 3 chars, exclusive end
+      local scope_end = scope_start + 3 -- "[F]" is 3 chars, exclusive end
       local scope_hl = group.scope_type == "cgscc" and "GodboltPipelineScopeCGSCC" or "GodboltPipelineScopeFunction"
-      vim.hl.range(bufnr, ns_id, scope_hl, {line_num, scope_start}, {line_num, scope_end})
+      vim.hl.range(bufnr, ns_id, scope_hl, { line_num, scope_start }, { line_num, scope_end })
 
       -- Pass name starts after ">NNN. ▸ [F] "
       local name_start = scope_end + 1
@@ -687,18 +663,17 @@ function M.apply_pass_list_highlights()
       local count_col = line:find(" %(", name_start, true)
       if count_col then
         -- Highlight pass name up to " ("
-        vim.hl.range(bufnr, ns_id, "GodboltPipelineGroupHeader", {line_num, name_start}, {line_num, count_col - 1})
+        vim.hl.range(bufnr, ns_id, "GodboltPipelineGroupHeader", { line_num, name_start }, { line_num, count_col - 1 })
         -- Highlight count " (N functions)"
-        vim.hl.range(bufnr, ns_id, "GodboltPipelineGroupCount", {line_num, count_col - 1}, {line_num, -1})
+        vim.hl.range(bufnr, ns_id, "GodboltPipelineGroupCount", { line_num, count_col - 1 }, { line_num, -1 })
       else
-        vim.hl.range(bufnr, ns_id, "GodboltPipelineGroupHeader", {line_num, name_start}, {line_num, -1})
+        vim.hl.range(bufnr, ns_id, "GodboltPipelineGroupHeader", { line_num, name_start }, { line_num, -1 })
       end
 
       -- Gray out if no changes
       if not group.has_changes then
-        vim.hl.range(bufnr, ns_id, "GodboltPipelineUnchanged", {line_num, name_start}, {line_num, -1})
+        vim.hl.range(bufnr, ns_id, "GodboltPipelineUnchanged", { line_num, name_start }, { line_num, -1 })
       end
-
     elseif info.type == "function_entry" then
       -- Function entry: "      ●   functionName" or "          functionName"
       -- Note: marker can be ● (3 UTF-8 bytes) or space (1 byte), affecting alignment
@@ -709,14 +684,14 @@ function M.apply_pass_list_highlights()
 
       local fn_marker_col = 1 + num_width + 2
       -- Check if marker is ● (UTF-8 starts with 0xE2) or space
-      local marker_byte = line:byte(fn_marker_col + 1)  -- +1 for 1-indexed Lua strings
+      local marker_byte = line:byte(fn_marker_col + 1) -- +1 for 1-indexed Lua strings
       local marker_is_bullet = marker_byte == 0xE2
 
       -- Calculate name start: marker_col + marker_size + 3 spaces
       local name_start = marker_is_bullet and (fn_marker_col + 3 + 3) or (fn_marker_col + 1 + 3)
 
       local highlight_group = pass.changed and "GodboltPipelinePassName" or "GodboltPipelineUnchanged"
-      vim.hl.range(bufnr, ns_id, highlight_group, {line_num, name_start}, {line_num, -1})
+      vim.hl.range(bufnr, ns_id, highlight_group, { line_num, name_start }, { line_num, -1 })
     end
   end
 end
@@ -737,17 +712,16 @@ function M.update_selection_highlighting()
   -- Clear all previous selection highlighting
   vim.api.nvim_buf_clear_namespace(bufnr, ns_sel, 0, -1)
 
-  local num_width = M.state.num_width  -- Use cached value
+  local num_width = M.state.num_width -- Use cached value
 
   -- Find the line(s) to highlight based on current_index
   for line_idx, info in pairs(line_map) do
-    local line_num = line_idx - 1  -- 0-indexed
+    local line_num = line_idx - 1 -- 0-indexed
 
     if info.type == "module" and info.original_index == M.state.current_index then
       -- Highlight the > marker at column 0 (single char, exclusive end = 1)
-      vim.hl.range(bufnr, ns_sel, "GodboltPipelineSelectedMarker", {line_num, 0}, {line_num, 1})
+      vim.hl.range(bufnr, ns_sel, "GodboltPipelineSelectedMarker", { line_num, 0 }, { line_num, 1 })
       break
-
     elseif info.type == "group_header" then
       -- Check if this group contains the selected function
       local group = groups[info.group_idx]
@@ -755,16 +729,16 @@ function M.update_selection_highlighting()
         for _, fn in ipairs(group.functions or {}) do
           if fn.original_index == M.state.current_index then
             -- Highlight the > marker at column 0 (single char, exclusive end = 1)
-            vim.hl.range(bufnr, ns_sel, "GodboltPipelineSelectedMarker", {line_num, 0}, {line_num, 1})
-            goto done  -- Found it, stop searching
+            vim.hl.range(bufnr, ns_sel, "GodboltPipelineSelectedMarker", { line_num, 0 }, { line_num, 1 })
+            goto done -- Found it, stop searching
           end
         end
       end
-
     elseif info.type == "function_entry" and info.original_index == M.state.current_index and not M.state.on_group_header then
       -- Highlight the ● marker (3 UTF-8 bytes, exclusive end)
       local fn_marker_col = 1 + num_width + 2
-      vim.hl.range(bufnr, ns_sel, "GodboltPipelineSelectedMarker", {line_num, fn_marker_col}, {line_num, fn_marker_col + 3})
+      vim.hl.range(bufnr, ns_sel, "GodboltPipelineSelectedMarker", { line_num, fn_marker_col },
+        { line_num, fn_marker_col + 3 })
       break
     end
   end
@@ -773,11 +747,11 @@ function M.update_selection_highlighting()
 end
 
 -- Pre-compute statistics for all passes asynchronously in chunks
--- OPTIMIZATION: Previously this was synchronous causing 3-8 second UI freeze
+-- Previously this was synchronous causing 3-8 second UI freeze
 -- Sets pass.stats for each pass
 function M.compute_stats_async(callback)
   local total_passes = #M.state.passes
-  local chunk_size = 100  -- Larger chunks than compute_pass_changes since stats are simpler
+  local chunk_size = 100 -- Larger chunks than compute_pass_changes since stats are simpler
   local start_time = vim.loop.hrtime()
   local last_print_time = start_time
 
@@ -798,7 +772,7 @@ function M.compute_stats_async(callback)
       print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Computing statistics... (%d/%d passes)",
         total_elapsed, chunk_end, total_passes))
       last_print_time = current_time
-      vim.cmd('redraw')  -- Force UI update
+      vim.cmd('redraw') -- Force UI update
     end
 
     -- Process this chunk synchronously
@@ -817,180 +791,63 @@ function M.compute_stats_async(callback)
   process_chunk(1)
 end
 
--- Compute a hash of IR lines for efficient change detection
--- This is more reliable than line count comparison
-local function compute_ir_hash(ir_lines)
-  if not ir_lines or #ir_lines == 0 then
-    return 0
-  end
-
-  -- Concatenate all lines and compute hash
-  local content = table.concat(ir_lines, "\n")
-
-  -- Simple hash function using Lua's string hashing
-  local hash = 0
-  for i = 1, #content do
-    hash = (hash * 31 + string.byte(content, i)) % 2147483647
-  end
-
-  return hash
-end
-
--- Pre-compute which passes actually changed IR
--- Sets pass.changed (boolean) and pass.diff_stats (table) for each pass
--- Now fully async with callback to avoid UI freeze on large pass counts
+-- Pre-compute diff statistics for display purposes
+-- The parser already sets pass.changed from --print-changed, so we trust that.
+-- This function only computes line-level statistics for UI display.
+-- @param callback: function to call when complete
 function M.compute_pass_changes(callback)
-  local ir_utils = require('godbolt.ir_utils')
-  local pipeline = require('godbolt.pipeline')
   local total_passes = #M.state.passes
-  local chunk_size = 50  -- Process in chunks
-  local start_time = vim.loop.hrtime()
-  local last_print_time = start_time
 
-  local function process_chunk(chunk_start)
-    -- Check if we're done
-    if chunk_start > total_passes then
-      -- DEBUG: Print summary of changed/unchanged passes
-      local changed_count = 0
-      local unchanged_count = 0
-      local nil_count = 0
-      for _, pass in ipairs(M.state.passes) do
-        if pass.changed == true then
-          changed_count = changed_count + 1
-        elseif pass.changed == false then
-          unchanged_count = unchanged_count + 1
-        else
-          nil_count = nil_count + 1
-        end
-      end
-      print(string.format("[DEBUG] compute_pass_changes COMPLETE: %d changed, %d unchanged, %d nil (total %d)",
-        changed_count, unchanged_count, nil_count, total_passes))
+  for index, pass in ipairs(M.state.passes) do
+    -- Parser MUST have set pass.changed from --print-changed
+    assert(pass.changed ~= nil, string.format("Pass %d '%s' missing .changed field - parser bug!", index, pass.name))
 
-      if callback then callback() end
-      return
+    -- Get before/after IR (full module from resolver)
+    local before_ir = M.get_before_ir_for_pass(index)
+    local after_ir = M.get_after_ir_for_pass(index)
+
+    -- Extract function for scoped passes to match display
+    if (pass.scope_type == "function" or pass.scope_type == "cgscc" or pass.scope_type == "loop") and pass.scope_target then
+      local pipeline = require('godbolt.pipeline')
+      local ir_parser = pipeline.ir_parser
+      before_ir = ir_parser.extract_function(before_ir, pass.scope_target) or before_ir
+      after_ir = ir_parser.extract_function(after_ir, pass.scope_target) or after_ir
     end
 
-    local chunk_end = math.min(chunk_start + chunk_size - 1, total_passes)
-
-    -- Show progress every 2 seconds
-    local current_time = vim.loop.hrtime()
-    local elapsed_since_print = (current_time - last_print_time) / 1e9
-    if chunk_start > 1 and elapsed_since_print >= 2.0 then
-      local total_elapsed = (current_time - start_time) / 1e9
-      print(string.format("[" .. get_timestamp() .. "] [Pipeline] [%.3fs] Computing pass changes... (%d/%d passes)",
-        total_elapsed, chunk_end, total_passes))
-      last_print_time = current_time
-      vim.cmd('redraw')  -- Force UI update
-    end
-
-    -- Process this chunk synchronously
-    for index = chunk_start, chunk_end do
-      local pass = M.state.passes[index]
-
-      -- OPTIMIZATION: Skip expensive IR comparison for passes pre-marked as unchanged (--print-changed)
-      -- However, we still need to verify with hash comparison since LLVM may include metadata
-      if pass.changed == false then
-        -- Pass was omitted by LLVM (--print-changed), but verify with hash
-        local before_ir = pass.before_ir or M.get_before_ir_for_pass(index)
-        local after_ir = pass.ir
-
-        -- Apply same filtering as display
-        if M.state.config and M.state.config.display and M.state.config.display.strip_debug_metadata then
-          before_ir = select(1, ir_utils.filter_debug_metadata(before_ir))
-          after_ir = select(1, ir_utils.filter_debug_metadata(after_ir))
-        end
-
-        -- Use hash comparison for efficiency
-        local before_hash = compute_ir_hash(before_ir)
-        local after_hash = compute_ir_hash(after_ir)
-
-        if before_hash == after_hash then
-          -- Truly unchanged
-          pass.changed = false
-          pass.diff_stats = {
-            lines_changed = 0,
-            lines_before = #before_ir,
-            lines_after = #after_ir,
-          }
-        else
-          -- Hash mismatch - LLVM's --print-changed optimization was wrong
-          -- Fall through to full comparison below
-          pass.changed = nil  -- Reset so we do full comparison
-        end
-
-        if pass.changed == false then
-          goto continue
-        end
-      end
-
-      -- Get before IR - use stored before_ir if available, otherwise reconstruct
-      local before_ir
-      if pass.before_ir then
-        -- We have the actual before IR from -print-before-all
-        before_ir = pass.before_ir
-      else
-        -- Fallback to reconstruction (for backwards compatibility)
-        before_ir = M.get_before_ir_for_pass(index)
-      end
-
-      local after_ir = pass.ir
-
-      -- Apply same filtering as display
-      if M.state.config and M.state.config.display and M.state.config.display.strip_debug_metadata then
-        before_ir = select(1, ir_utils.filter_debug_metadata(before_ir))
-        after_ir = select(1, ir_utils.filter_debug_metadata(after_ir))
-      end
-
-      -- Use hash comparison first for efficiency
-      local before_hash = compute_ir_hash(before_ir)
-      local after_hash = compute_ir_hash(after_ir)
-
-      local changed = false
-      local lines_changed = 0
-
-      if before_hash == after_hash then
-        -- Hashes match - IR is identical
-        changed = false
-        lines_changed = 0
-      else
-        -- Hashes differ - need to count changed lines
-        changed = true
-        local max_lines = math.max(#before_ir, #after_ir)
-
-        -- Count different lines
-        for i = 1, max_lines do
-          local before_line = before_ir[i] or ""
-          local after_line = after_ir[i] or ""
-          if before_line ~= after_line then
-            lines_changed = lines_changed + 1
-          end
-        end
-      end
-
-      pass.changed = changed
+    -- Compute simple diff stats for display (cheap - just line counts)
+    if pass.changed then
       pass.diff_stats = {
-        lines_changed = lines_changed,
         lines_before = #before_ir,
         lines_after = #after_ir,
+        lines_changed = math.abs(#after_ir - #before_ir), -- Rough estimate for display
       }
-
-      -- DEBUG: Log a sample of changed passes to verify detection is working
-      if changed and index % 100 == 0 then  -- Log every 100th changed pass to avoid spam
-        print(string.format("[DEBUG] Pass %d '%s' marked as CHANGED (lines_changed=%d, before=%d, after=%d)",
-          index, pass.name, lines_changed, #before_ir, #after_ir))
-      end
-
-      ::continue::
+    else
+      -- Unchanged pass: all stats are zero
+      pass.diff_stats = {
+        lines_before = #before_ir,
+        lines_after = #before_ir,
+        lines_changed = 0,
+      }
     end
-
-    -- Schedule next chunk (yields to event loop for UI responsiveness)
-    vim.schedule(function()
-      process_chunk(chunk_start + chunk_size)
-    end)
   end
 
-  -- Start processing first chunk
-  process_chunk(1)
+  -- Count changed/unchanged for logging
+  local changed_count = 0
+  local unchanged_count = 0
+  for _, pass in ipairs(M.state.passes) do
+    if pass.changed then
+      changed_count = changed_count + 1
+    else
+      unchanged_count = unchanged_count + 1
+    end
+  end
+
+  print(string.format("[Pipeline] Pass changes: %d changed, %d unchanged (from --print-changed)",
+    changed_count, unchanged_count))
+
+  if callback then
+    callback()
+  end
 end
 
 -- Get before IR for a given pass index
@@ -998,105 +855,28 @@ end
 -- @param index: pass index (1-based)
 -- @return: IR lines array
 function M.get_before_ir_for_pass(index)
-  local ir_utils = require('godbolt.ir_utils')
   local pipeline = require('godbolt.pipeline')
+  local ir_resolver = pipeline.ir_resolver
 
-  if index <= 1 then
-    -- First pass: return empty or input
-    if M.state.input_file then
-      return pipeline.get_stripped_input(M.state.input_file) or {}
-    else
-      return {}
-    end
-  end
+  -- Get initial IR once - it's stored in the first pass by pipeline.lua
+  local initial_ir = M.state.passes[1]._initial_ir or {}
 
-  local pass = M.state.passes[index]
-  local scope_type = pass.scope_type
-  local scope_target = pass.scope_target
+  -- Use lazy resolver to get before-IR
+  return ir_resolver.get_before_ir(M.state.passes, initial_ir, index)
+end
 
-  -- Prefer captured before_ir from -print-before-all
-  if pass.before_ir and #pass.before_ir > 0 then
-    return pass.before_ir
-  end
+-- Get after-IR for a pass (IR state after the pass ran)
+-- @param index: pass index (1-based)
+-- @return: IR lines array
+function M.get_after_ir_for_pass(index)
+  local pipeline = require('godbolt.pipeline')
+  local ir_resolver = pipeline.ir_resolver
 
-  if scope_type == "module" then
-    -- Module pass: get previous module pass
-    -- OPTIMIZATION: Use module_pass_indices for O(1) lookup instead of O(n) scan
-    if M.state.module_pass_indices then
-      -- Binary search or linear search through index to find last module pass before current
-      local last_module_idx = nil
-      for _, mod_idx in ipairs(M.state.module_pass_indices) do
-        if mod_idx >= index then
-          break
-        end
-        last_module_idx = mod_idx
-      end
+  -- Get initial IR once - it's stored in the first pass by pipeline.lua
+  local initial_ir = M.state.passes[1]._initial_ir or {}
 
-      if last_module_idx then
-        return M.state.passes[last_module_idx].ir
-      end
-    else
-      -- Fallback to old O(n) scan if index not built
-      for i = index - 1, 1, -1 do
-        if M.state.passes[i].scope_type == "module" then
-          return M.state.passes[i].ir
-        end
-      end
-    end
-
-    -- No previous module pass, use input
-    if M.state.input_file then
-      return pipeline.get_stripped_input(M.state.input_file) or {}
-    else
-      return {}
-    end
-
-  else
-    -- Function or CGSCC pass
-    local func_name = scope_target
-    local prev_pass = M.state.passes[index - 1]
-    local prev_scope_type = prev_pass.scope_type
-    local prev_func_name = prev_pass.scope_target
-
-    if prev_scope_type ~= "module" and prev_func_name == func_name then
-      -- Same function in previous pass
-      return prev_pass.ir
-    elseif prev_scope_type == "module" then
-      -- Previous pass was module, extract function
-      return ir_utils.extract_function(prev_pass.ir, func_name)
-    else
-      -- Different function, find last module pass
-      -- OPTIMIZATION: Use module_pass_indices for O(1) lookup
-      if M.state.module_pass_indices then
-        local last_module_idx = nil
-        for _, mod_idx in ipairs(M.state.module_pass_indices) do
-          if mod_idx >= index then
-            break
-          end
-          last_module_idx = mod_idx
-        end
-
-        if last_module_idx then
-          return ir_utils.extract_function(M.state.passes[last_module_idx].ir, func_name)
-        end
-      else
-        -- Fallback to old O(n) scan
-        for i = index - 1, 1, -1 do
-          if M.state.passes[i].scope_type == "module" then
-            return ir_utils.extract_function(M.state.passes[i].ir, func_name)
-          end
-        end
-      end
-
-      -- No module pass found, try input
-      if func_name and M.state.input_file then
-        local input_ir = pipeline.get_stripped_input(M.state.input_file)
-        return ir_utils.extract_function(input_ir, func_name)
-      else
-        return {}
-      end
-    end
-  end
+  -- Use lazy resolver to get after-IR
+  return ir_resolver.get_after_ir(M.state.passes, initial_ir, index)
 end
 
 -- Show diff between pass N-1 and pass N
@@ -1120,110 +900,32 @@ function M.show_diff(index)
   local scope_type = pass.scope_type
   local scope_target = pass.scope_target
 
-  -- Get before and after IR based on scope type
-  local before_ir = {}
+  -- Use helper functions to get before and after IR (full module from resolver)
+  local before_ir = M.get_before_ir_for_pass(index)
+  local after_ir = M.get_after_ir_for_pass(index)
+
+  -- With --print-module-scope, resolver gives us full module
+  -- For scoped passes (function/loop/CGSCC), extract just the relevant function for display
+  if (scope_type == "function" or scope_type == "cgscc" or scope_type == "loop") and scope_target then
+    local pipeline = require('godbolt.pipeline')
+    local ir_parser = pipeline.ir_parser
+
+    -- Extract the target function from full module for cleaner display
+    before_ir = ir_parser.extract_function(before_ir, scope_target) or before_ir
+    after_ir = ir_parser.extract_function(after_ir, scope_target) or after_ir
+  end
+
+  -- Determine before_name for display
   local before_name = ""
-  local after_ir = pass.ir
-
-  if scope_type == "module" then
-    -- Module pass: show full module before/after
-    -- Prefer captured before_ir from -print-before-all
-    if pass.before_ir and #pass.before_ir > 0 then
-      before_ir = pass.before_ir
-      before_name = "Before: " .. pass.name
-    elseif index == 1 then
-      -- First pass overall: get input module
-      if M.state.input_file then
-        before_ir = pipeline.get_stripped_input(M.state.input_file)
-        before_name = "Input Module"
-      else
-        before_ir = {"", "[ No previous state ]", ""}
-        before_name = "Initial"
-      end
-    else
-      -- Find previous module pass
-      local prev_module_idx = nil
-      for i = index - 1, 1, -1 do
-        if M.state.passes[i].scope_type == "module" then
-          prev_module_idx = i
-          break
-        end
-      end
-
-      if prev_module_idx then
-        -- Found previous module pass
-        before_ir = M.state.passes[prev_module_idx].ir
-        before_name = M.state.passes[prev_module_idx].name
-      else
-        -- No previous module pass, use input
-        if M.state.input_file then
-          before_ir = pipeline.get_stripped_input(M.state.input_file)
-          before_name = "Input Module"
-        else
-          before_ir = {"", "[ No previous state ]", ""}
-          before_name = "Initial"
-        end
-      end
-    end
-
+  if index == 1 then
+    before_name = M.state.input_file and "Input Module" or "Initial"
   else
-    -- Function or CGSCC pass: show specific function
-    local func_name = scope_target
-
-    if index == 1 then
-      -- First pass overall: get function from input
-      if func_name and M.state.input_file then
-        local input_ir = pipeline.get_stripped_input(M.state.input_file)
-        before_ir = ir_utils.extract_function(input_ir, func_name)
-        before_name = "Input: " .. func_name
-      else
-        before_ir = {"", "[ No previous state ]", ""}
-        before_name = "Initial"
-      end
-    else
-      -- Check previous pass scope
-      local prev_pass = M.state.passes[index - 1]
-      local prev_scope_type = prev_pass.scope_type
-      local prev_func_name = prev_pass.scope_target
-
-      if prev_scope_type ~= "module" and prev_func_name == func_name then
-        -- Same function in previous pass, use it directly
-        before_ir = prev_pass.ir
-        before_name = prev_pass.name
-      elseif prev_scope_type == "module" then
-        -- Previous pass was module-scoped, extract our function from it
-        before_ir = ir_utils.extract_function(prev_pass.ir, func_name)
-        before_name = prev_pass.name .. " → " .. func_name
-      else
-        -- Previous pass was different function, look backwards for last module pass
-        local last_module_pass = nil
-        for i = index - 1, 1, -1 do
-          if M.state.passes[i].scope_type == "module" then
-            last_module_pass = M.state.passes[i]
-            break
-          end
-        end
-
-        if last_module_pass then
-          -- Found a module pass, extract our function from it
-          before_ir = ir_utils.extract_function(last_module_pass.ir, func_name)
-          before_name = last_module_pass.name .. " → " .. func_name
-        elseif func_name and M.state.input_file then
-          -- No module pass found, try input file
-          local input_ir = pipeline.get_stripped_input(M.state.input_file)
-          before_ir = ir_utils.extract_function(input_ir, func_name)
-          before_name = "Input: " .. func_name
-        else
-          -- No state available
-          before_ir = {"", "[ No previous state ]", ""}
-          before_name = "Initial"
-        end
-      end
-    end
+    before_name = M.state.passes[index - 1].name
   end
 
   -- Filter debug metadata if configured
   if M.state.config and M.state.config.display and M.state.config.display.strip_debug_metadata then
+    local ir_utils = require('godbolt.ir_utils')
     before_ir = select(1, ir_utils.filter_debug_metadata(before_ir))
     after_ir = select(1, ir_utils.filter_debug_metadata(after_ir))
   end
@@ -1268,8 +970,8 @@ function M.show_diff(index)
 
     -- Set up line mapping with auto-scroll enabled and quiet mode
     local line_map_config = M.state.config.line_mapping or {}
-    line_map_config.auto_scroll = true  -- Force auto-scroll in pipeline viewer
-    line_map_config.quiet = true  -- Suppress "no mappings" warnings (expected for many passes)
+    line_map_config.auto_scroll = true -- Force auto-scroll in pipeline viewer
+    line_map_config.quiet = true       -- Suppress "no mappings" warnings (expected for many passes)
 
     -- Store full IR for line mapping
     vim.b[M.state.after_bufnr].godbolt_full_output = after_ir
@@ -1280,8 +982,8 @@ function M.show_diff(index)
   -- Show inline hints if enabled
   local godbolt = require('godbolt')
   local hints_config = godbolt.config.pipeline and
-                       godbolt.config.pipeline.remarks and
-                       godbolt.config.pipeline.remarks.inline_hints
+      godbolt.config.pipeline.remarks and
+      godbolt.config.pipeline.remarks.inline_hints
   if hints_config and hints_config.enabled and M.state.inline_hints_enabled then
     M.show_inline_hints()
   end
@@ -1323,8 +1025,10 @@ function M.show_help_menu()
   table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.toggle_fold), "Toggle fold/unfold group"))
   table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.activate_line), "Select pass or toggle fold"))
   table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.show_remarks), "Show remarks for current pass"))
-  table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.show_all_remarks), "Show ALL remarks from all passes"))
-  table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.toggle_inline_hints), "Toggle inline hints on/off"))
+  table.insert(lines,
+    string.format("  %-20s  %s", format_keymap(keymaps.show_all_remarks), "Show ALL remarks from all passes"))
+  table.insert(lines,
+    string.format("  %-20s  %s", format_keymap(keymaps.toggle_inline_hints), "Toggle inline hints on/off"))
   table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.show_help), "Show this help menu"))
   table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.quit), "Quit pipeline viewer"))
   table.insert(lines, "")
@@ -1385,21 +1089,21 @@ local function apply_remarks_highlighting(bufnr, lines, highlight_metadata)
     -- Highlight category labels (PASS, MISSED, ANALYSIS)
     if meta and meta.category then
       local hl_group = meta.category == "pass" and "DiagnosticOk" or
-                       meta.category == "missed" and "DiagnosticWarn" or
-                       "DiagnosticInfo"
+          meta.category == "missed" and "DiagnosticWarn" or
+          "DiagnosticInfo"
 
       if meta.icon_pos then
         -- Highlight icon (✓, ✗, ℹ)
         local icon_start, icon_end = meta.icon_pos[1], meta.icon_pos[2]
         pcall(vim.hl.range, bufnr, ns, hl_group,
-              {line_num - 1, icon_start}, {line_num - 1, icon_end}, {})
+          { line_num - 1, icon_start }, { line_num - 1, icon_end }, {})
       end
 
       if meta.category_pos then
         -- Highlight category label (PASS, MISSED, ANALYSIS)
         local cat_start, cat_end = meta.category_pos[1], meta.category_pos[2]
         pcall(vim.hl.range, bufnr, ns, hl_group,
-              {line_num - 1, cat_start}, {line_num - 1, cat_end}, {})
+          { line_num - 1, cat_start }, { line_num - 1, cat_end }, {})
       end
     end
 
@@ -1408,21 +1112,21 @@ local function apply_remarks_highlighting(bufnr, lines, highlight_metadata)
       for _, label_pos in ipairs(meta.labels) do
         local start_col, end_col = label_pos[1], label_pos[2]
         pcall(vim.hl.range, bufnr, ns, "Identifier",
-              {line_num - 1, start_col}, {line_num - 1, end_col}, {})
+          { line_num - 1, start_col }, { line_num - 1, end_col }, {})
       end
     end
 
     -- Highlight separators (=== and ---)
     if line:match("^=+$") or line:match("^-+$") then
       pcall(vim.hl.range, bufnr, ns, "Comment",
-            {line_num - 1, 0}, {line_num - 1, #line}, {})
+        { line_num - 1, 0 }, { line_num - 1, #line }, {})
     end
 
     -- Highlight location strings (file:line:col)
     local loc_start, loc_end = line:find("%S+:%d+:%d+")
     if loc_start then
       pcall(vim.hl.range, bufnr, ns, "String",
-            {line_num - 1, loc_start - 1}, {line_num - 1, loc_end}, {})
+        { line_num - 1, loc_start - 1 }, { line_num - 1, loc_end }, {})
     end
 
     -- Enhanced highlighting for Details lines
@@ -1438,13 +1142,13 @@ local function apply_remarks_highlighting(bufnr, lines, highlight_metadata)
         local start = line:find(caller, details_start, true)
         if start then
           pcall(vim.hl.range, bufnr, ns, "Function",
-                {line_num - 1, start - 1}, {line_num - 1, start + #caller - 1}, {})
+            { line_num - 1, start - 1 }, { line_num - 1, start + #caller - 1 }, {})
         end
         -- Highlight second function (callee)
         local start2 = line:find(callee, start and (start + #caller) or details_start, true)
         if start2 then
           pcall(vim.hl.range, bufnr, ns, "Function",
-                {line_num - 1, start2 - 1}, {line_num - 1, start2 + #callee - 1}, {})
+            { line_num - 1, start2 - 1 }, { line_num - 1, start2 + #callee - 1 }, {})
         end
       else
         -- Pattern 2: "foo inlined into bar" (positive case) - highlight both
@@ -1454,13 +1158,13 @@ local function apply_remarks_highlighting(bufnr, lines, highlight_metadata)
           local start = line:find(caller2, details_start, true)
           if start then
             pcall(vim.hl.range, bufnr, ns, "Function",
-                  {line_num - 1, start - 1}, {line_num - 1, start + #caller2 - 1}, {})
+              { line_num - 1, start - 1 }, { line_num - 1, start + #caller2 - 1 }, {})
           end
           -- Highlight second function
           local start2 = line:find(callee2, start and (start + #caller2) or details_start, true)
           if start2 then
             pcall(vim.hl.range, bufnr, ns, "Function",
-                  {line_num - 1, start2 - 1}, {line_num - 1, start2 + #callee2 - 1}, {})
+              { line_num - 1, start2 - 1 }, { line_num - 1, start2 + #callee2 - 1 }, {})
           end
         end
       end
@@ -1471,7 +1175,7 @@ local function apply_remarks_highlighting(bufnr, lines, highlight_metadata)
         local start = line:find(fname .. "()", details_start, true)
         if start then
           pcall(vim.hl.range, bufnr, ns, "Function",
-                {line_num - 1, start - 1}, {line_num - 1, start + #fname - 1}, {})
+            { line_num - 1, start - 1 }, { line_num - 1, start + #fname - 1 }, {})
         end
       end
 
@@ -1483,11 +1187,11 @@ local function apply_remarks_highlighting(bufnr, lines, highlight_metadata)
         if start then
           -- Highlight the key
           pcall(vim.hl.range, bufnr, ns, "Special",
-                {line_num - 1, start - 1}, {line_num - 1, start + #metric - 1}, {})
+            { line_num - 1, start - 1 }, { line_num - 1, start + #metric - 1 }, {})
           -- Highlight the value (use Number if numeric, String otherwise)
           local hl_group = value:match("^%-?%d+$") and "Number" or "String"
           pcall(vim.hl.range, bufnr, ns, hl_group,
-                {line_num - 1, start + #metric}, {line_num - 1, start + #pattern - 1}, {})
+            { line_num - 1, start + #metric }, { line_num - 1, start + #pattern - 1 }, {})
         end
       end
 
@@ -1496,7 +1200,7 @@ local function apply_remarks_highlighting(bufnr, lines, highlight_metadata)
         local start = line:find(loc, details_start, true)
         if start then
           pcall(vim.hl.range, bufnr, ns, "String",
-                {line_num - 1, start - 1}, {line_num - 1, start + #loc - 1}, {})
+            { line_num - 1, start - 1 }, { line_num - 1, start + #loc - 1 }, {})
         end
       end
     end
@@ -1513,7 +1217,7 @@ function M.show_all_remarks_popup()
   -- Collect all remarks from all passes
   local all_remarks = {}
   local total_count = 0
-  local by_category = {pass = 0, missed = 0, analysis = 0}
+  local by_category = { pass = 0, missed = 0, analysis = 0 }
 
   for _, pass in ipairs(M.state.passes) do
     if pass.remarks and #pass.remarks > 0 then
@@ -1571,9 +1275,9 @@ function M.show_all_remarks_popup()
         end
       elseif arg.key == "Line" then
         -- Check if next is Column for compact formatting
-        if i < #args and args[i+1].key == "Column" then
-          table.insert(parts, arg.value .. ":" .. args[i+1].value)
-          i = i + 1  -- Skip the Column entry
+        if i < #args and args[i + 1].key == "Column" then
+          table.insert(parts, arg.value .. ":" .. args[i + 1].value)
+          i = i + 1 -- Skip the Column entry
         else
           table.insert(parts, arg.value)
         end
@@ -1615,9 +1319,9 @@ function M.show_all_remarks_popup()
 
     -- Icon and header based on category
     local icon = remark.category == "pass" and "✓" or
-                 remark.category == "missed" and "✗" or "ℹ"
+        remark.category == "missed" and "✗" or "ℹ"
     local category_label = remark.category == "pass" and "PASS" or
-                          remark.category == "missed" and "MISSED" or "ANALYSIS"
+        remark.category == "missed" and "MISSED" or "ANALYSIS"
 
     -- Location string
     local loc = remark.location
@@ -1631,41 +1335,41 @@ function M.show_all_remarks_popup()
     local cat_start, cat_end = header_line:find(category_label, 1, true)
     table.insert(highlight_metadata, {
       category = remark.category,
-      icon_pos = icon_start and {icon_start - 1, icon_start + #icon - 1},
-      category_pos = cat_start and {cat_start - 1, cat_end},
+      icon_pos = icon_start and { icon_start - 1, icon_start + #icon - 1 },
+      category_pos = cat_start and { cat_start - 1, cat_end },
     })
 
     -- Which pass this came from
     table.insert(lines, string.format("    From:    Pass #%d - %s", entry.pass_index, entry.pass_name))
-    table.insert(highlight_metadata, {labels = {{4, 9}}})  -- "From:"
+    table.insert(highlight_metadata, { labels = { { 4, 9 } } }) -- "From:"
 
     -- Message (what happened)
     table.insert(lines, string.format("    Message: %s", remark.message))
-    table.insert(highlight_metadata, {labels = {{4, 12}}})  -- "Message:"
+    table.insert(highlight_metadata, { labels = { { 4, 12 } } }) -- "Message:"
 
     -- Pass name (the actual LLVM pass that generated this remark)
     if remark.pass_name then
       table.insert(lines, string.format("    Pass:    %s", remark.pass_name))
-      table.insert(highlight_metadata, {labels = {{4, 9}}})  -- "Pass:"
+      table.insert(highlight_metadata, { labels = { { 4, 9 } } }) -- "Pass:"
     end
 
     -- Function context (which function this remark is about)
     if remark.function_name then
       table.insert(lines, string.format("    In:      %s()", remark.function_name))
-      table.insert(highlight_metadata, {labels = {{4, 7}}})  -- "In:"
+      table.insert(highlight_metadata, { labels = { { 4, 7 } } }) -- "In:"
     end
 
     -- Args (additional details specific to the optimization)
     local details = format_args_details(remark.args)
     if details then
       table.insert(lines, string.format("    Details: %s", details))
-      table.insert(highlight_metadata, {labels = {{4, 12}}})  -- "Details:"
+      table.insert(highlight_metadata, { labels = { { 4, 12 } } }) -- "Details:"
     end
 
     -- Extra fields (any other metadata we found)
     if remark.extra then
       table.insert(lines, "    Extra:")
-      table.insert(highlight_metadata, {labels = {{4, 10}}})  -- "Extra:"
+      table.insert(highlight_metadata, { labels = { { 4, 10 } } }) -- "Extra:"
       for key, value in pairs(remark.extra) do
         table.insert(lines, string.format("      • %s: %s", key, value))
         table.insert(highlight_metadata, {})
@@ -1738,20 +1442,20 @@ local function format_inline_hint(remark, format)
   format = format or "short"
 
   local icon = remark.category == "pass" and "✓" or
-               remark.category == "missed" and "✗" or "ℹ"
+      remark.category == "missed" and "✗" or "ℹ"
 
   if format == "icon" then
     return icon
   elseif format == "short" then
     -- Show icon + message (compact)
     return string.format("%s %s", icon, remark.message)
-  else  -- "detailed"
+  else -- "detailed"
     -- Show more context
     local text = string.format("%s %s", icon, remark.message)
     if remark.args then
       -- Add first useful arg (like Callee, Cost, Reason, etc.)
       for _, arg in ipairs(remark.args) do
-        if arg.key ~= "String" then  -- Skip generic String fields
+        if arg.key ~= "String" then -- Skip generic String fields
           text = text .. string.format(" (%s: %s)", arg.key, arg.value)
           break
         end
@@ -1766,11 +1470,11 @@ end
 -- @return: vim.diagnostic.severity
 local function get_remark_severity(category)
   if category == "pass" then
-    return vim.diagnostic.severity.HINT  -- Success - hint level
+    return vim.diagnostic.severity.HINT -- Success - hint level
   elseif category == "missed" then
-    return vim.diagnostic.severity.WARN  -- Missed optimization - warning
+    return vim.diagnostic.severity.WARN -- Missed optimization - warning
   else
-    return vim.diagnostic.severity.INFO  -- Analysis - info
+    return vim.diagnostic.severity.INFO -- Analysis - info
   end
 end
 
@@ -1808,8 +1512,8 @@ function M.show_inline_hints()
   -- Get config
   local godbolt = require('godbolt')
   local hints_config = godbolt.config.pipeline and
-                       godbolt.config.pipeline.remarks and
-                       godbolt.config.pipeline.remarks.inline_hints or {}
+      godbolt.config.pipeline.remarks and
+      godbolt.config.pipeline.remarks.inline_hints or {}
   local format = hints_config.format or "short"
 
   -- Build diagnostics array
@@ -1827,7 +1531,7 @@ function M.show_inline_hints()
     -- For now, place all at line 0 since we don't have source->IR mapping yet
     -- TODO: Use debug metadata to find the actual IR line
     table.insert(diagnostics, {
-      lnum = 0,  -- 0-indexed line number
+      lnum = 0, -- 0-indexed line number
       col = 0,
       severity = severity,
       message = message,
@@ -1850,8 +1554,8 @@ function M.show_inline_hints()
         end
       end,
     },
-    signs = false,  -- Don't show signs column for remarks
-    underline = false,  -- Don't underline
+    signs = false,     -- Don't show signs column for remarks
+    underline = false, -- Don't underline
     update_in_insert = false,
   })
 
@@ -1927,9 +1631,9 @@ function M.show_remarks_popup()
         end
       elseif arg.key == "Line" then
         -- Check if next is Column for compact formatting
-        if i < #args and args[i+1].key == "Column" then
-          table.insert(parts, arg.value .. ":" .. args[i+1].value)
-          i = i + 1  -- Skip the Column entry
+        if i < #args and args[i + 1].key == "Column" then
+          table.insert(parts, arg.value .. ":" .. args[i + 1].value)
+          i = i + 1 -- Skip the Column entry
         else
           table.insert(parts, arg.value)
         end
@@ -1965,7 +1669,7 @@ function M.show_remarks_popup()
   table.insert(highlight_metadata, {})
 
   -- Group by category for summary
-  local by_category = {pass = {}, missed = {}, analysis = {}}
+  local by_category = { pass = {}, missed = {}, analysis = {} }
   for _, remark in ipairs(pass.remarks) do
     table.insert(by_category[remark.category], remark)
   end
@@ -1976,9 +1680,9 @@ function M.show_remarks_popup()
 
     -- Icon and header based on category
     local icon = remark.category == "pass" and "✓" or
-                 remark.category == "missed" and "✗" or "ℹ"
+        remark.category == "missed" and "✗" or "ℹ"
     local category_label = remark.category == "pass" and "PASS" or
-                          remark.category == "missed" and "MISSED" or "ANALYSIS"
+        remark.category == "missed" and "MISSED" or "ANALYSIS"
 
     -- Location string
     local loc = remark.location
@@ -1992,37 +1696,37 @@ function M.show_remarks_popup()
     local cat_start, cat_end = header_line:find(category_label, 1, true)
     table.insert(highlight_metadata, {
       category = remark.category,
-      icon_pos = icon_start and {icon_start - 1, icon_start + #icon - 1},
-      category_pos = cat_start and {cat_start - 1, cat_end},
+      icon_pos = icon_start and { icon_start - 1, icon_start + #icon - 1 },
+      category_pos = cat_start and { cat_start - 1, cat_end },
     })
 
     -- Message (what happened)
     table.insert(lines, string.format("    Message: %s", remark.message))
-    table.insert(highlight_metadata, {labels = {{4, 12}}})  -- "Message:"
+    table.insert(highlight_metadata, { labels = { { 4, 12 } } }) -- "Message:"
 
     -- Pass name (the actual LLVM pass that generated this remark)
     if remark.pass_name then
       table.insert(lines, string.format("    Pass:    %s", remark.pass_name))
-      table.insert(highlight_metadata, {labels = {{4, 9}}})  -- "Pass:"
+      table.insert(highlight_metadata, { labels = { { 4, 9 } } }) -- "Pass:"
     end
 
     -- Function context (which function this remark is about)
     if remark.function_name then
       table.insert(lines, string.format("    In:      %s()", remark.function_name))
-      table.insert(highlight_metadata, {labels = {{4, 7}}})  -- "In:"
+      table.insert(highlight_metadata, { labels = { { 4, 7 } } }) -- "In:"
     end
 
     -- Args (additional details specific to the optimization)
     local details = format_args_details(remark.args)
     if details then
       table.insert(lines, string.format("    Details: %s", details))
-      table.insert(highlight_metadata, {labels = {{4, 12}}})  -- "Details:"
+      table.insert(highlight_metadata, { labels = { { 4, 12 } } }) -- "Details:"
     end
 
     -- Extra fields (any other metadata we found)
     if remark.extra then
       table.insert(lines, "    Extra:")
-      table.insert(highlight_metadata, {labels = {{4, 10}}})  -- "Extra:"
+      table.insert(highlight_metadata, { labels = { { 4, 10 } } }) -- "Extra:"
       for key, value in pairs(remark.extra) do
         table.insert(lines, string.format("      • %s: %s", key, value))
         table.insert(highlight_metadata, {})
@@ -2093,7 +1797,7 @@ function M.update_pass_list_cursor(old_index, new_index)
   -- Find the line corresponding to new_index
   for line_idx, info in pairs(line_map) do
     if info.type == "module" and info.original_index == new_index then
-      pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, {line_idx, 0})
+      pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, { line_idx, 0 })
       return
     elseif info.type == "function_entry" and info.original_index == new_index then
       -- If on group header, move to group header; otherwise move to function entry
@@ -2101,12 +1805,12 @@ function M.update_pass_list_cursor(old_index, new_index)
         -- Find the group header for this function
         for header_line_idx, header_info in pairs(line_map) do
           if header_info.type == "group_header" and header_info.group_idx == info.group_idx then
-            pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, {header_line_idx, 0})
+            pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, { header_line_idx, 0 })
             return
           end
         end
       else
-        pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, {line_idx, 0})
+        pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, { line_idx, 0 })
         return
       end
     end
@@ -2221,14 +1925,14 @@ function M.toggle_fold_under_cursor()
   end
 
   group.folded = not group.folded
-  M.populate_pass_list()  -- Rebuild display
+  M.populate_pass_list() -- Rebuild display
 
   -- Find the group header line again after rebuild using line_map
   local line_map_updated = M.state.pass_list_line_map
   for i, updated_info in pairs(line_map_updated) do
     if updated_info.type == "group_header" and updated_info.group_idx == line_info.group_idx then
       -- Found the group header, move cursor there
-      pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, {i, 0})
+      pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, { i, 0 })
       return true
     end
   end
@@ -2258,14 +1962,14 @@ function M.fold_parent_group_under_cursor()
       local groups = M.state.grouped_passes
       local group = groups[prev_info.group_idx]
       if group and (group.type == "function_group" or group.type == "cgscc_group") then
-        group.folded = true  -- Always fold (don't toggle)
-        M.populate_pass_list()  -- Rebuild display
+        group.folded = true    -- Always fold (don't toggle)
+        M.populate_pass_list() -- Rebuild display
 
         -- Move cursor to the folded group header using updated line_map
         local line_map_updated = M.state.pass_list_line_map
         for new_i, updated_info in pairs(line_map_updated) do
           if updated_info.type == "group_header" and updated_info.group_idx == prev_info.group_idx then
-            pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, {new_i, 0})
+            pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, { new_i, 0 })
             -- Update view to show group header state (cleared buffers)
             M.select_pass_for_viewing()
             return true
@@ -2293,10 +1997,10 @@ local function goto_next_pass_line()
   for i = current_line + 1, total_lines do
     local line_info = line_map[i]
     if line_info and (line_info.type == "module" or
-                      line_info.type == "group_header" or
-                      line_info.type == "function_entry") then
+          line_info.type == "group_header" or
+          line_info.type == "function_entry") then
       -- Found selectable line - move there
-      vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {i, 0})
+      vim.api.nvim_win_set_cursor(M.state.pass_list_winid, { i, 0 })
 
       -- Update current_index and render
       M.select_pass_for_viewing()
@@ -2320,10 +2024,10 @@ local function goto_prev_pass_line()
   for i = current_line - 1, 1, -1 do
     local line_info = line_map[i]
     if line_info and (line_info.type == "module" or
-                      line_info.type == "group_header" or
-                      line_info.type == "function_entry") then
+          line_info.type == "group_header" or
+          line_info.type == "function_entry") then
       -- Found selectable line - move there
-      vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {i, 0})
+      vim.api.nvim_win_set_cursor(M.state.pass_list_winid, { i, 0 })
 
       -- Update current_index and render
       M.select_pass_for_viewing()
@@ -2377,40 +2081,38 @@ local function goto_next_changed_pass_line()
           -- UNFOLD the group if it's folded
           if group.folded then
             group.folded = false
-            M.populate_pass_list()  -- Rebuild to show function entries
+            M.populate_pass_list() -- Rebuild to show function entries
           end
 
           -- Now find the actual function entry line in the unfolded group
           local line_map_updated = M.state.pass_list_line_map
           for line_idx, updated_info in pairs(line_map_updated) do
             if updated_info.type == "function_entry" and
-               updated_info.original_index == first_changed_fn.original_index then
+                updated_info.original_index == first_changed_fn.original_index then
               -- Found it! Move cursor to the function entry
-              vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {line_idx, 0})
+              vim.api.nvim_win_set_cursor(M.state.pass_list_winid, { line_idx, 0 })
               M.select_pass_for_viewing()
               return
             end
           end
 
           -- Fallback: if we can't find the function entry (shouldn't happen), just show the group
-          vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {i, 0})
+          vim.api.nvim_win_set_cursor(M.state.pass_list_winid, { i, 0 })
           M.select_pass_for_viewing()
           return
         end
       end
-
     elseif line_info.type == "module" then
       -- Check if this module pass is changed
       if is_pass_changed(line_info.original_index) then
-        vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {i, 0})
+        vim.api.nvim_win_set_cursor(M.state.pass_list_winid, { i, 0 })
         M.select_pass_for_viewing()
         return
       end
-
     elseif line_info.type == "function_entry" then
       -- Check if this function pass is changed
       if is_pass_changed(line_info.original_index) then
-        vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {i, 0})
+        vim.api.nvim_win_set_cursor(M.state.pass_list_winid, { i, 0 })
         M.select_pass_for_viewing()
         return
       end
@@ -2455,40 +2157,38 @@ local function goto_prev_changed_pass_line()
           -- UNFOLD the group if it's folded
           if group.folded then
             group.folded = false
-            M.populate_pass_list()  -- Rebuild to show function entries
+            M.populate_pass_list() -- Rebuild to show function entries
           end
 
           -- Now find the actual function entry line in the unfolded group
           local line_map_updated = M.state.pass_list_line_map
           for line_idx, updated_info in pairs(line_map_updated) do
             if updated_info.type == "function_entry" and
-               updated_info.original_index == first_changed_fn.original_index then
+                updated_info.original_index == first_changed_fn.original_index then
               -- Found it! Move cursor to the function entry
-              vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {line_idx, 0})
+              vim.api.nvim_win_set_cursor(M.state.pass_list_winid, { line_idx, 0 })
               M.select_pass_for_viewing()
               return
             end
           end
 
           -- Fallback: if we can't find the function entry (shouldn't happen), just show the group
-          vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {i, 0})
+          vim.api.nvim_win_set_cursor(M.state.pass_list_winid, { i, 0 })
           M.select_pass_for_viewing()
           return
         end
       end
-
     elseif line_info.type == "module" then
       -- Check if this module pass is changed
       if is_pass_changed(line_info.original_index) then
-        vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {i, 0})
+        vim.api.nvim_win_set_cursor(M.state.pass_list_winid, { i, 0 })
         M.select_pass_for_viewing()
         return
       end
-
     elseif line_info.type == "function_entry" then
       -- Check if this function pass is changed
       if is_pass_changed(line_info.original_index) then
-        vim.api.nvim_win_set_cursor(M.state.pass_list_winid, {i, 0})
+        vim.api.nvim_win_set_cursor(M.state.pass_list_winid, { i, 0 })
         M.select_pass_for_viewing()
         return
       end
@@ -2519,7 +2219,7 @@ function M.select_pass_for_viewing()
     if group and (group.type == "function_group" or group.type == "cgscc_group") and group.functions and #group.functions > 0 then
       local old_index = M.state.current_index
       M.state.current_index = group.functions[1].original_index
-      M.state.on_group_header = true  -- Don't show function marker
+      M.state.on_group_header = true -- Don't show function marker
 
       -- Clear both buffers
       vim.api.nvim_buf_set_option(M.state.before_bufnr, 'modifiable', true)
@@ -2541,16 +2241,14 @@ function M.select_pass_for_viewing()
       M.update_pass_list_cursor(old_index, M.state.current_index)
     end
     return
-
   elseif line_info.type == "function_entry" then
     -- On a function entry: show diff for that function
-    M.state.on_group_header = false  -- Clear flag
+    M.state.on_group_header = false -- Clear flag
     M.show_diff(line_info.original_index)
     return
-
   elseif line_info.type == "module" then
     -- On a module pass: show diff
-    M.state.on_group_header = false  -- Clear flag
+    M.state.on_group_header = false -- Clear flag
     M.show_diff(line_info.original_index)
     return
   end
@@ -2713,7 +2411,7 @@ function M.cleanup()
     before_winid = nil,
     after_winid = nil,
     config = nil,
-    ns_id = M.state.ns_id,  -- Keep namespace
+    ns_id = M.state.ns_id, -- Keep namespace
   }
 end
 
