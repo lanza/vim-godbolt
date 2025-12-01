@@ -26,6 +26,8 @@ M.state = {
   config = nil,
   ns_id = vim.api.nvim_create_namespace('godbolt_pipeline'),
   ns_selection = vim.api.nvim_create_namespace('godbolt_pipeline_selection'),  -- Separate namespace for selection highlighting
+  ns_hints = vim.api.nvim_create_namespace('godbolt_remarks_hints'),  -- Namespace for inline hints
+  inline_hints_enabled = true,  -- Track if inline hints are currently shown
   grouped_passes = nil,  -- Grouped/folded pass structure
   module_pass_indices = nil,  -- OPTIMIZATION: Index of module pass positions {5, 23, 107, ...}
   on_group_header = false,  -- Track if we're on a group header (don't show function marker)
@@ -521,7 +523,7 @@ function M.populate_pass_list()
   line_map[#lines] = {type = "footer"}
   table.insert(lines, "Legend: [M]=Module [F]=Function [C]=CGSCC")
   line_map[#lines] = {type = "footer"}
-  table.insert(lines, "Keys: j/k=nav, Tab/S-Tab=changed-only, Enter/o=fold, q=quit")
+  table.insert(lines, "Keys: j/k=nav, R=remarks, gR=all, gh=hints, g?=help, q=quit")
   line_map[#lines] = {type = "footer"}
 
   vim.api.nvim_buf_set_option(M.state.pass_list_bufnr, 'modifiable', true)
@@ -1274,12 +1276,607 @@ function M.show_diff(index)
 
     line_map.setup(M.state.source_bufnr, M.state.after_bufnr, "llvm", line_map_config)
   end
+
+  -- Show inline hints if enabled
+  local godbolt = require('godbolt')
+  local hints_config = godbolt.config.pipeline and
+                       godbolt.config.pipeline.remarks and
+                       godbolt.config.pipeline.remarks.inline_hints
+  if hints_config and hints_config.enabled and M.state.inline_hints_enabled then
+    M.show_inline_hints()
+  end
 end
 
 -- Update the cursor marker in pass list
 -- IMPORTANT: indices are ORIGINAL indices in M.state.passes, NOT display_index!
 -- @param old_index: previous current_index (to remove old markers)
 -- @param new_index: new current_index (to add new markers)
+-- Show help menu with keybindings
+function M.show_help_menu()
+  local config = M.state.config or {}
+  local godbolt = require('godbolt')
+  local keymaps = (godbolt.config.pipeline and godbolt.config.pipeline.keymaps) or {}
+
+  -- Helper to format keymap (handles both string and table)
+  local function format_keymap(km)
+    if type(km) == "table" then
+      return table.concat(km, ", ")
+    else
+      return km or "not set"
+    end
+  end
+
+  -- Build help text
+  local lines = {}
+  table.insert(lines, "Pipeline Viewer Keybindings")
+  table.insert(lines, string.rep("=", 50))
+  table.insert(lines, "")
+  table.insert(lines, "Navigation:")
+  table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.next_pass), "Move to next pass"))
+  table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.prev_pass), "Move to previous pass"))
+  table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.next_changed), "Jump to next changed pass"))
+  table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.prev_changed), "Jump to previous changed pass"))
+  table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.first_pass), "Jump to first pass"))
+  table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.last_pass), "Jump to last pass"))
+  table.insert(lines, "")
+  table.insert(lines, "Actions:")
+  table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.toggle_fold), "Toggle fold/unfold group"))
+  table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.activate_line), "Select pass or toggle fold"))
+  table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.show_remarks), "Show remarks for current pass"))
+  table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.show_all_remarks), "Show ALL remarks from all passes"))
+  table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.toggle_inline_hints), "Toggle inline hints on/off"))
+  table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.show_help), "Show this help menu"))
+  table.insert(lines, string.format("  %-20s  %s", format_keymap(keymaps.quit), "Quit pipeline viewer"))
+  table.insert(lines, "")
+  table.insert(lines, "In before/after panes:")
+  table.insert(lines, "  ]p, [p            Navigate passes")
+  table.insert(lines, "  ]c, [c            Jump to next/prev diff")
+  table.insert(lines, "")
+  table.insert(lines, "Legend:")
+  table.insert(lines, "  [M] = Module pass    [F] = Function pass    [C] = CGSCC pass")
+  table.insert(lines, "  >   = Selected pass   ●   = Selected function")
+  table.insert(lines, "")
+  table.insert(lines, "Press q, <Esc>, or <CR> to close this help")
+
+  -- Create floating window
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.api.nvim_buf_set_option(buf, 'modifiable', false)
+  vim.api.nvim_buf_set_option(buf, 'bufhidden', 'wipe')
+  vim.api.nvim_buf_set_option(buf, 'filetype', 'help')
+
+  local width = math.min(60, vim.o.columns - 4)
+  local height = math.min(#lines + 2, vim.o.lines - 4)
+
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = "editor",
+    width = width,
+    height = height,
+    col = math.floor((vim.o.columns - width) / 2),
+    row = math.floor((vim.o.lines - height) / 2),
+    style = "minimal",
+    border = "rounded",
+    title = " Pipeline Viewer Help ",
+    title_pos = "center",
+  })
+
+  -- Keymaps to close
+  local opts = { noremap = true, silent = true, buffer = buf }
+  vim.keymap.set('n', 'q', '<cmd>close<CR>', opts)
+  vim.keymap.set('n', '<Esc>', '<cmd>close<CR>', opts)
+  vim.keymap.set('n', '<CR>', '<cmd>close<CR>', opts)
+  vim.keymap.set('n', 'g?', '<cmd>close<CR>', opts)
+end
+
+-- Helper to apply semantic highlighting to remarks popup buffer
+-- @param bufnr: buffer number to highlight
+-- @param lines: array of line strings
+-- @param highlight_metadata: array of {category, icon_pos, category_pos, labels} per line
+local function apply_remarks_highlighting(bufnr, lines, highlight_metadata)
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+
+  local ns = vim.api.nvim_create_namespace('godbolt_remarks_popup')
+
+  for line_num, line in ipairs(lines) do
+    local meta = highlight_metadata[line_num]
+
+    -- Highlight category labels (PASS, MISSED, ANALYSIS)
+    if meta and meta.category then
+      local hl_group = meta.category == "pass" and "DiagnosticOk" or
+                       meta.category == "missed" and "DiagnosticWarn" or
+                       "DiagnosticInfo"
+
+      if meta.icon_pos then
+        -- Highlight icon (✓, ✗, ℹ)
+        local icon_start, icon_end = meta.icon_pos[1], meta.icon_pos[2]
+        pcall(vim.hl.range, bufnr, ns, hl_group,
+              {line_num - 1, icon_start}, {line_num - 1, icon_end}, {})
+      end
+
+      if meta.category_pos then
+        -- Highlight category label (PASS, MISSED, ANALYSIS)
+        local cat_start, cat_end = meta.category_pos[1], meta.category_pos[2]
+        pcall(vim.hl.range, bufnr, ns, hl_group,
+              {line_num - 1, cat_start}, {line_num - 1, cat_end}, {})
+      end
+    end
+
+    -- Highlight field labels (Message:, Pass:, In:, Details:, etc.)
+    if meta and meta.labels then
+      for _, label_pos in ipairs(meta.labels) do
+        local start_col, end_col = label_pos[1], label_pos[2]
+        pcall(vim.hl.range, bufnr, ns, "Identifier",
+              {line_num - 1, start_col}, {line_num - 1, end_col}, {})
+      end
+    end
+
+    -- Highlight separators (=== and ---)
+    if line:match("^=+$") or line:match("^-+$") then
+      pcall(vim.hl.range, bufnr, ns, "Comment",
+            {line_num - 1, 0}, {line_num - 1, #line}, {})
+    end
+
+    -- Highlight location strings (file:line:col)
+    local loc_start, loc_end = line:find("%S+:%d+:%d+")
+    if loc_start then
+      pcall(vim.hl.range, bufnr, ns, "String",
+            {line_num - 1, loc_start - 1}, {line_num - 1, loc_end}, {})
+    end
+
+    -- Enhanced highlighting for Details lines
+    if line:match("^%s+Details:") then
+      local details_start = line:find("Details:") + 8
+      local content = line:sub(details_start + 1)
+
+      -- Try to highlight inlining-specific patterns
+      -- Pattern 1: "foo not inlined into bar" - highlight both function names
+      local caller, callee = content:match("(%w+)%s+not inlined into%s+(%w+)")
+      if caller and callee then
+        -- Highlight first function (caller)
+        local start = line:find(caller, details_start, true)
+        if start then
+          pcall(vim.hl.range, bufnr, ns, "Function",
+                {line_num - 1, start - 1}, {line_num - 1, start + #caller - 1}, {})
+        end
+        -- Highlight second function (callee)
+        local start2 = line:find(callee, start and (start + #caller) or details_start, true)
+        if start2 then
+          pcall(vim.hl.range, bufnr, ns, "Function",
+                {line_num - 1, start2 - 1}, {line_num - 1, start2 + #callee - 1}, {})
+        end
+      else
+        -- Pattern 2: "foo inlined into bar" (positive case) - highlight both
+        local caller2, callee2 = content:match("(%w+)%s+inlined into%s+(%w+)")
+        if caller2 and callee2 then
+          -- Highlight first function
+          local start = line:find(caller2, details_start, true)
+          if start then
+            pcall(vim.hl.range, bufnr, ns, "Function",
+                  {line_num - 1, start - 1}, {line_num - 1, start + #caller2 - 1}, {})
+          end
+          -- Highlight second function
+          local start2 = line:find(callee2, start and (start + #caller2) or details_start, true)
+          if start2 then
+            pcall(vim.hl.range, bufnr, ns, "Function",
+                  {line_num - 1, start2 - 1}, {line_num - 1, start2 + #callee2 - 1}, {})
+          end
+        end
+      end
+
+      -- Generic pattern: highlight any function name followed by ()
+      -- This catches cases like "analyzing foo()"
+      for fname in content:gmatch("(%w+)%(%)") do
+        local start = line:find(fname .. "()", details_start, true)
+        if start then
+          pcall(vim.hl.range, bufnr, ns, "Function",
+                {line_num - 1, start - 1}, {line_num - 1, start + #fname - 1}, {})
+        end
+      end
+
+      -- Highlight metrics (cost=value, threshold=value) - handle both numbers and words
+      -- Pattern matches key=value where value is anything up to delimiter (comma, paren, space, colon)
+      for metric, value in content:gmatch("(%w+)=([^,%)%s:]+)") do
+        local pattern = metric .. "=" .. value
+        local start = line:find(pattern, details_start, true)
+        if start then
+          -- Highlight the key
+          pcall(vim.hl.range, bufnr, ns, "Special",
+                {line_num - 1, start - 1}, {line_num - 1, start + #metric - 1}, {})
+          -- Highlight the value (use Number if numeric, String otherwise)
+          local hl_group = value:match("^%-?%d+$") and "Number" or "String"
+          pcall(vim.hl.range, bufnr, ns, hl_group,
+                {line_num - 1, start + #metric}, {line_num - 1, start + #pattern - 1}, {})
+        end
+      end
+
+      -- Highlight callsite location (e.g., "baz:1:30")
+      for loc in content:gmatch("(%w+:%d+:%d+)") do
+        local start = line:find(loc, details_start, true)
+        if start then
+          pcall(vim.hl.range, bufnr, ns, "String",
+                {line_num - 1, start - 1}, {line_num - 1, start + #loc - 1}, {})
+        end
+      end
+    end
+  end
+end
+
+-- Show ALL optimization remarks from all passes
+function M.show_all_remarks_popup()
+  if not M.state.passes then
+    vim.notify("No passes available", vim.log.levels.INFO)
+    return
+  end
+
+  -- Collect all remarks from all passes
+  local all_remarks = {}
+  local total_count = 0
+  local by_category = {pass = 0, missed = 0, analysis = 0}
+
+  for _, pass in ipairs(M.state.passes) do
+    if pass.remarks and #pass.remarks > 0 then
+      for _, remark in ipairs(pass.remarks) do
+        table.insert(all_remarks, {
+          remark = remark,
+          pass_name = pass.name,
+          pass_index = _,
+        })
+        total_count = total_count + 1
+        by_category[remark.category] = by_category[remark.category] + 1
+      end
+    end
+  end
+
+  if total_count == 0 then
+    vim.notify("No remarks found in any pass", vim.log.levels.INFO)
+    return
+  end
+
+  -- Helper to format Args into a readable string
+  local function format_args_details(args)
+    if not args or #args == 0 then
+      return nil
+    end
+
+    local parts = {}
+    local i = 1
+
+    while i <= #args do
+      local arg = args[i]
+
+      if arg.key == "String" then
+        local str = arg.value
+        -- Skip standalone quote marks
+        if str ~= "'" and str ~= "''" and str ~= "" then
+          -- Remove quote marks from the string
+          str = str:gsub("'", "")
+          table.insert(parts, str)
+        end
+      elseif arg.key == "Callee" or arg.key == "Caller" then
+        -- Just insert the function name without key
+        table.insert(parts, arg.value)
+      elseif arg.key == "Cost" or arg.key == "Threshold" then
+        -- Check if previous String fragment already contains the key
+        local prev_part = parts[#parts] or ""
+        local key_lower = arg.key:lower()
+
+        if prev_part:match(key_lower .. "=$") then
+          -- Key already present in template, just insert value
+          table.insert(parts, arg.value)
+        else
+          -- Format as lowercase key=value
+          table.insert(parts, key_lower .. "=" .. arg.value)
+        end
+      elseif arg.key == "Line" then
+        -- Check if next is Column for compact formatting
+        if i < #args and args[i+1].key == "Column" then
+          table.insert(parts, arg.value .. ":" .. args[i+1].value)
+          i = i + 1  -- Skip the Column entry
+        else
+          table.insert(parts, arg.value)
+        end
+      elseif arg.key == "Column" then
+        -- Handle standalone Column (if Line wasn't before it)
+        table.insert(parts, arg.value)
+      else
+        -- Other keys: just insert value
+        table.insert(parts, arg.value)
+      end
+
+      i = i + 1
+    end
+
+    local result = table.concat(parts, "")
+    -- Remove trailing semicolons
+    result = result:gsub(";$", "")
+    -- Clean up any double spaces
+    result = result:gsub("  +", " ")
+
+    return result
+  end
+
+  -- Format remarks as lines with detailed information
+  -- Also track metadata for highlighting
+  local lines = {}
+  local highlight_metadata = {}
+  table.insert(lines, string.format("All Optimization Remarks (%d passes with remarks)", total_count))
+  table.insert(highlight_metadata, {})
+  table.insert(lines, string.rep("=", 80))
+  table.insert(highlight_metadata, {})
+  table.insert(lines, "")
+  table.insert(highlight_metadata, {})
+
+  local remark_num = 0
+  for _, entry in ipairs(all_remarks) do
+    local remark = entry.remark
+    remark_num = remark_num + 1
+
+    -- Icon and header based on category
+    local icon = remark.category == "pass" and "✓" or
+                 remark.category == "missed" and "✗" or "ℹ"
+    local category_label = remark.category == "pass" and "PASS" or
+                          remark.category == "missed" and "MISSED" or "ANALYSIS"
+
+    -- Location string
+    local loc = remark.location
+    local loc_str = loc and string.format("%s:%d:%d", loc.file, loc.line, loc.column) or "unknown"
+
+    -- Header line with icon, number, category, and location
+    local header_line = string.format("[%d] %s %s  %s", remark_num, icon, category_label, loc_str)
+    table.insert(lines, header_line)
+    -- Track positions for highlighting
+    local icon_start = header_line:find(icon, 1, true)
+    local cat_start, cat_end = header_line:find(category_label, 1, true)
+    table.insert(highlight_metadata, {
+      category = remark.category,
+      icon_pos = icon_start and {icon_start - 1, icon_start + #icon - 1},
+      category_pos = cat_start and {cat_start - 1, cat_end},
+    })
+
+    -- Which pass this came from
+    table.insert(lines, string.format("    From:    Pass #%d - %s", entry.pass_index, entry.pass_name))
+    table.insert(highlight_metadata, {labels = {{4, 9}}})  -- "From:"
+
+    -- Message (what happened)
+    table.insert(lines, string.format("    Message: %s", remark.message))
+    table.insert(highlight_metadata, {labels = {{4, 12}}})  -- "Message:"
+
+    -- Pass name (the actual LLVM pass that generated this remark)
+    if remark.pass_name then
+      table.insert(lines, string.format("    Pass:    %s", remark.pass_name))
+      table.insert(highlight_metadata, {labels = {{4, 9}}})  -- "Pass:"
+    end
+
+    -- Function context (which function this remark is about)
+    if remark.function_name then
+      table.insert(lines, string.format("    In:      %s()", remark.function_name))
+      table.insert(highlight_metadata, {labels = {{4, 7}}})  -- "In:"
+    end
+
+    -- Args (additional details specific to the optimization)
+    local details = format_args_details(remark.args)
+    if details then
+      table.insert(lines, string.format("    Details: %s", details))
+      table.insert(highlight_metadata, {labels = {{4, 12}}})  -- "Details:"
+    end
+
+    -- Extra fields (any other metadata we found)
+    if remark.extra then
+      table.insert(lines, "    Extra:")
+      table.insert(highlight_metadata, {labels = {{4, 10}}})  -- "Extra:"
+      for key, value in pairs(remark.extra) do
+        table.insert(lines, string.format("      • %s: %s", key, value))
+        table.insert(highlight_metadata, {})
+      end
+    end
+
+    table.insert(lines, "")
+    table.insert(highlight_metadata, {})
+  end
+
+  -- Summary footer
+  table.insert(lines, string.rep("-", 80))
+  table.insert(highlight_metadata, {})
+  table.insert(lines, string.format("Total: %d remarks (%d pass, %d missed, %d analysis)",
+    total_count,
+    by_category.pass,
+    by_category.missed,
+    by_category.analysis
+  ))
+  table.insert(highlight_metadata, {})
+  table.insert(lines, "")
+  table.insert(highlight_metadata, {})
+  table.insert(lines, "Navigation: Use j/k or arrows to scroll")
+  table.insert(highlight_metadata, {})
+  table.insert(lines, "Press q, <Esc>, or <CR> to close")
+  table.insert(highlight_metadata, {})
+
+  -- Create floating window
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.api.nvim_buf_set_option(buf, 'modifiable', false)
+  vim.api.nvim_buf_set_option(buf, 'bufhidden', 'wipe')
+
+  -- Apply semantic highlighting
+  apply_remarks_highlighting(buf, lines, highlight_metadata)
+
+  local width = math.min(100, vim.o.columns - 4)
+  local height = math.min(#lines + 2, vim.o.lines - 4)
+
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = "editor",
+    width = width,
+    height = height,
+    col = math.floor((vim.o.columns - width) / 2),
+    row = math.floor((vim.o.lines - height) / 2),
+    style = "minimal",
+    border = "rounded",
+    title = " All Optimization Remarks ",
+    title_pos = "center",
+  })
+
+  -- Set filetype for potential syntax highlighting
+  vim.api.nvim_buf_set_option(buf, 'filetype', 'godbolt-remarks')
+
+  -- Keymaps to close
+  local opts = { noremap = true, silent = true, buffer = buf }
+  vim.keymap.set('n', 'q', '<cmd>close<CR>', opts)
+  vim.keymap.set('n', '<Esc>', '<cmd>close<CR>', opts)
+  vim.keymap.set('n', '<CR>', '<cmd>close<CR>', opts)
+end
+
+-- Setup diagnostic namespace for remarks
+local remarks_ns = vim.api.nvim_create_namespace('godbolt_remarks_diagnostics')
+
+-- Format a remark as diagnostic virtual text
+-- @param remark: remark table
+-- @param format: "icon", "short", or "detailed"
+-- @return: string to show as virtual text
+local function format_inline_hint(remark, format)
+  format = format or "short"
+
+  local icon = remark.category == "pass" and "✓" or
+               remark.category == "missed" and "✗" or "ℹ"
+
+  if format == "icon" then
+    return icon
+  elseif format == "short" then
+    -- Show icon + message (compact)
+    return string.format("%s %s", icon, remark.message)
+  else  -- "detailed"
+    -- Show more context
+    local text = string.format("%s %s", icon, remark.message)
+    if remark.args then
+      -- Add first useful arg (like Callee, Cost, Reason, etc.)
+      for _, arg in ipairs(remark.args) do
+        if arg.key ~= "String" then  -- Skip generic String fields
+          text = text .. string.format(" (%s: %s)", arg.key, arg.value)
+          break
+        end
+      end
+    end
+    return text
+  end
+end
+
+-- Get diagnostic severity for a remark category
+-- @param category: "pass", "missed", or "analysis"
+-- @return: vim.diagnostic.severity
+local function get_remark_severity(category)
+  if category == "pass" then
+    return vim.diagnostic.severity.HINT  -- Success - hint level
+  elseif category == "missed" then
+    return vim.diagnostic.severity.WARN  -- Missed optimization - warning
+  else
+    return vim.diagnostic.severity.INFO  -- Analysis - info
+  end
+end
+
+-- Setup highlight groups for remarks diagnostics
+local function setup_remark_highlights()
+  -- Link to diagnostic highlights with custom italic styling
+  if vim.fn.hlexists("DiagnosticHintGodbolt") == 0 then
+    vim.api.nvim_set_hl(0, "DiagnosticHintGodbolt", { link = "DiagnosticHint" })
+    vim.api.nvim_set_hl(0, "DiagnosticVirtualTextHintGodbolt", { fg = "#98c379", italic = true })
+  end
+  if vim.fn.hlexists("DiagnosticWarnGodbolt") == 0 then
+    vim.api.nvim_set_hl(0, "DiagnosticWarnGodbolt", { link = "DiagnosticWarn" })
+    vim.api.nvim_set_hl(0, "DiagnosticVirtualTextWarnGodbolt", { fg = "#e06c75", italic = true })
+  end
+  if vim.fn.hlexists("DiagnosticInfoGodbolt") == 0 then
+    vim.api.nvim_set_hl(0, "DiagnosticInfoGodbolt", { link = "DiagnosticInfo" })
+    vim.api.nvim_set_hl(0, "DiagnosticVirtualTextInfoGodbolt", { fg = "#61afef", italic = true })
+  end
+end
+
+-- Show inline hints for current pass using vim.diagnostic
+function M.show_inline_hints()
+  if not M.state.current_index or not M.state.passes then
+    return
+  end
+
+  local pass = M.state.passes[M.state.current_index]
+  if not pass.remarks or #pass.remarks == 0 then
+    return
+  end
+
+  -- Setup highlights
+  setup_remark_highlights()
+
+  -- Get config
+  local godbolt = require('godbolt')
+  local hints_config = godbolt.config.pipeline and
+                       godbolt.config.pipeline.remarks and
+                       godbolt.config.pipeline.remarks.inline_hints or {}
+  local format = hints_config.format or "short"
+
+  -- Build diagnostics array
+  local diagnostics = {}
+
+  -- TODO: Map source line numbers to IR line numbers
+  -- For now, we'll show all remarks at the top of the buffer as a fallback
+  -- In the future, we should use debug info to map source locations to IR lines
+
+  -- Add each remark as a diagnostic
+  for _, remark in ipairs(pass.remarks) do
+    local message = format_inline_hint(remark, format)
+    local severity = get_remark_severity(remark.category)
+
+    -- For now, place all at line 0 since we don't have source->IR mapping yet
+    -- TODO: Use debug metadata to find the actual IR line
+    table.insert(diagnostics, {
+      lnum = 0,  -- 0-indexed line number
+      col = 0,
+      severity = severity,
+      message = message,
+      source = "godbolt-remarks",
+    })
+  end
+
+  -- Set diagnostics for the after buffer
+  vim.diagnostic.set(remarks_ns, M.state.after_bufnr, diagnostics, {
+    virtual_text = {
+      prefix = "",
+      spacing = 4,
+      suffix = function(diagnostic)
+        if diagnostic.severity == vim.diagnostic.severity.HINT then
+          return " ", "DiagnosticVirtualTextHintGodbolt"
+        elseif diagnostic.severity == vim.diagnostic.severity.WARN then
+          return " ", "DiagnosticVirtualTextWarnGodbolt"
+        else
+          return " ", "DiagnosticVirtualTextInfoGodbolt"
+        end
+      end,
+    },
+    signs = false,  -- Don't show signs column for remarks
+    underline = false,  -- Don't underline
+    update_in_insert = false,
+  })
+
+  M.state.inline_hints_enabled = true
+end
+
+-- Hide inline hints
+function M.hide_inline_hints()
+  if M.state.after_bufnr then
+    vim.diagnostic.reset(remarks_ns, M.state.after_bufnr)
+  end
+  M.state.inline_hints_enabled = false
+end
+
+-- Toggle inline hints on/off
+function M.toggle_inline_hints()
+  if M.state.inline_hints_enabled then
+    M.hide_inline_hints()
+    vim.notify("Inline hints hidden (press gh to show)", vim.log.levels.INFO)
+  else
+    M.show_inline_hints()
+    vim.notify("Inline hints shown (press gh to hide)", vim.log.levels.INFO)
+  end
+end
+
 -- Show optimization remarks popup for current pass
 function M.show_remarks_popup()
   if not M.state.current_index or not M.state.passes then
@@ -1293,42 +1890,172 @@ function M.show_remarks_popup()
     return
   end
 
-  -- Format remarks as lines
-  local lines = {}
-  table.insert(lines, string.format("Optimization Remarks for %s", pass.name))
-  table.insert(lines, string.rep("=", 80))
-  table.insert(lines, "")
+  -- Helper to format Args into a readable string
+  local function format_args_details(args)
+    if not args or #args == 0 then
+      return nil
+    end
 
-  for i, remark in ipairs(pass.remarks) do
-    -- Icon based on category
+    local parts = {}
+    local i = 1
+
+    while i <= #args do
+      local arg = args[i]
+
+      if arg.key == "String" then
+        local str = arg.value
+        -- Skip standalone quote marks
+        if str ~= "'" and str ~= "''" and str ~= "" then
+          -- Remove quote marks from the string
+          str = str:gsub("'", "")
+          table.insert(parts, str)
+        end
+      elseif arg.key == "Callee" or arg.key == "Caller" then
+        -- Just insert the function name without key
+        table.insert(parts, arg.value)
+      elseif arg.key == "Cost" or arg.key == "Threshold" then
+        -- Check if previous String fragment already contains the key
+        local prev_part = parts[#parts] or ""
+        local key_lower = arg.key:lower()
+
+        if prev_part:match(key_lower .. "=$") then
+          -- Key already present in template, just insert value
+          table.insert(parts, arg.value)
+        else
+          -- Format as lowercase key=value
+          table.insert(parts, key_lower .. "=" .. arg.value)
+        end
+      elseif arg.key == "Line" then
+        -- Check if next is Column for compact formatting
+        if i < #args and args[i+1].key == "Column" then
+          table.insert(parts, arg.value .. ":" .. args[i+1].value)
+          i = i + 1  -- Skip the Column entry
+        else
+          table.insert(parts, arg.value)
+        end
+      elseif arg.key == "Column" then
+        -- Handle standalone Column (if Line wasn't before it)
+        table.insert(parts, arg.value)
+      else
+        -- Other keys: just insert value
+        table.insert(parts, arg.value)
+      end
+
+      i = i + 1
+    end
+
+    local result = table.concat(parts, "")
+    -- Remove trailing semicolons
+    result = result:gsub(";$", "")
+    -- Clean up any double spaces
+    result = result:gsub("  +", " ")
+
+    return result
+  end
+
+  -- Format remarks as lines with detailed information
+  -- Also track metadata for highlighting
+  local lines = {}
+  local highlight_metadata = {}
+  table.insert(lines, string.format("Optimization Remarks for %s", pass.name))
+  table.insert(highlight_metadata, {})
+  table.insert(lines, string.rep("=", 80))
+  table.insert(highlight_metadata, {})
+  table.insert(lines, "")
+  table.insert(highlight_metadata, {})
+
+  -- Group by category for summary
+  local by_category = {pass = {}, missed = {}, analysis = {}}
+  for _, remark in ipairs(pass.remarks) do
+    table.insert(by_category[remark.category], remark)
+  end
+
+  local remark_num = 0
+  for _, remark in ipairs(pass.remarks) do
+    remark_num = remark_num + 1
+
+    -- Icon and header based on category
     local icon = remark.category == "pass" and "✓" or
                  remark.category == "missed" and "✗" or "ℹ"
+    local category_label = remark.category == "pass" and "PASS" or
+                          remark.category == "missed" and "MISSED" or "ANALYSIS"
 
     -- Location string
     local loc = remark.location
     local loc_str = loc and string.format("%s:%d:%d", loc.file, loc.line, loc.column) or "unknown"
 
-    table.insert(lines, string.format("[%d] %s %s", i, icon, loc_str))
-    table.insert(lines, "    " .. remark.message)
+    -- Header line with icon, number, category, and location
+    local header_line = string.format("[%d] %s %s  %s", remark_num, icon, category_label, loc_str)
+    table.insert(lines, header_line)
+    -- Track positions for highlighting
+    local icon_start = header_line:find(icon, 1, true)
+    local cat_start, cat_end = header_line:find(category_label, 1, true)
+    table.insert(highlight_metadata, {
+      category = remark.category,
+      icon_pos = icon_start and {icon_start - 1, icon_start + #icon - 1},
+      category_pos = cat_start and {cat_start - 1, cat_end},
+    })
+
+    -- Message (what happened)
+    table.insert(lines, string.format("    Message: %s", remark.message))
+    table.insert(highlight_metadata, {labels = {{4, 12}}})  -- "Message:"
+
+    -- Pass name (the actual LLVM pass that generated this remark)
+    if remark.pass_name then
+      table.insert(lines, string.format("    Pass:    %s", remark.pass_name))
+      table.insert(highlight_metadata, {labels = {{4, 9}}})  -- "Pass:"
+    end
+
+    -- Function context (which function this remark is about)
+    if remark.function_name then
+      table.insert(lines, string.format("    In:      %s()", remark.function_name))
+      table.insert(highlight_metadata, {labels = {{4, 7}}})  -- "In:"
+    end
+
+    -- Args (additional details specific to the optimization)
+    local details = format_args_details(remark.args)
+    if details then
+      table.insert(lines, string.format("    Details: %s", details))
+      table.insert(highlight_metadata, {labels = {{4, 12}}})  -- "Details:"
+    end
+
+    -- Extra fields (any other metadata we found)
+    if remark.extra then
+      table.insert(lines, "    Extra:")
+      table.insert(highlight_metadata, {labels = {{4, 10}}})  -- "Extra:"
+      for key, value in pairs(remark.extra) do
+        table.insert(lines, string.format("      • %s: %s", key, value))
+        table.insert(highlight_metadata, {})
+      end
+    end
+
     table.insert(lines, "")
+    table.insert(highlight_metadata, {})
   end
 
-  table.insert(lines, "")
+  -- Summary footer
+  table.insert(lines, string.rep("-", 80))
+  table.insert(highlight_metadata, {})
   table.insert(lines, string.format("Total: %d remarks (%d pass, %d missed, %d analysis)",
     #pass.remarks,
-    vim.tbl_filter(function(r) return r.category == "pass" end, pass.remarks) and
-      #vim.tbl_filter(function(r) return r.category == "pass" end, pass.remarks) or 0,
-    vim.tbl_filter(function(r) return r.category == "missed" end, pass.remarks) and
-      #vim.tbl_filter(function(r) return r.category == "missed" end, pass.remarks) or 0,
-    vim.tbl_filter(function(r) return r.category == "analysis" end, pass.remarks) and
-      #vim.tbl_filter(function(r) return r.category == "analysis" end, pass.remarks) or 0
+    #by_category.pass,
+    #by_category.missed,
+    #by_category.analysis
   ))
+  table.insert(highlight_metadata, {})
+  table.insert(lines, "")
+  table.insert(highlight_metadata, {})
+  table.insert(lines, "Press q, <Esc>, or <CR> to close")
+  table.insert(highlight_metadata, {})
 
   -- Create floating window
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.api.nvim_buf_set_option(buf, 'modifiable', false)
   vim.api.nvim_buf_set_option(buf, 'bufhidden', 'wipe')
+
+  -- Apply semantic highlighting
+  apply_remarks_highlighting(buf, lines, highlight_metadata)
 
   local width = math.min(100, vim.o.columns - 4)
   local height = math.min(#lines + 2, vim.o.lines - 4)
@@ -1869,85 +2596,53 @@ function M.setup_keymaps()
   end
 
   local bufnr = M.state.pass_list_bufnr
+  local godbolt = require('godbolt')
+  local keymaps = (godbolt.config.pipeline and godbolt.config.pipeline.keymaps) or {}
 
-  -- Navigation in pass list
-  vim.keymap.set('n', 'j', goto_next_pass_line, {
-    buffer = bufnr,
-    desc = 'Next pass'
-  })
+  -- Helper to set keymap(s) from config (handles both string and table)
+  local function set_keymap(key_config, handler, desc)
+    if not key_config then return end
 
-  vim.keymap.set('n', 'k', goto_prev_pass_line, {
-    buffer = bufnr,
-    desc = 'Previous pass'
-  })
+    if type(key_config) == "table" then
+      for _, key in ipairs(key_config) do
+        vim.keymap.set('n', key, handler, { buffer = bufnr, desc = desc })
+      end
+    else
+      vim.keymap.set('n', key_config, handler, { buffer = bufnr, desc = desc })
+    end
+  end
 
-  vim.keymap.set('n', '<Down>', goto_next_pass_line, {
-    buffer = bufnr,
-    desc = 'Next pass'
-  })
+  -- Pass list navigation
+  set_keymap(keymaps.next_pass, goto_next_pass_line, 'Next pass')
+  set_keymap(keymaps.prev_pass, goto_prev_pass_line, 'Previous pass')
+  set_keymap(keymaps.next_changed, goto_next_changed_pass_line, 'Next changed pass')
+  set_keymap(keymaps.prev_changed, goto_prev_changed_pass_line, 'Previous changed pass')
 
-  vim.keymap.set('n', '<Up>', goto_prev_pass_line, {
-    buffer = bufnr,
-    desc = 'Previous pass'
-  })
+  -- Folding
+  set_keymap(keymaps.toggle_fold, function() M.toggle_fold_under_cursor() end, 'Toggle fold')
+  set_keymap(keymaps.activate_line, function() M.activate_line_under_cursor() end, 'Toggle fold or select pass')
 
-  -- Smart navigation: Tab/Shift-Tab only jump to changed passes
-  vim.keymap.set('n', '<Tab>', goto_next_changed_pass_line, {
-    buffer = bufnr,
-    desc = 'Next changed pass'
-  })
+  -- Jump to first/last
+  set_keymap(keymaps.first_pass, function() M.first_pass() end, 'First pass')
+  set_keymap(keymaps.last_pass, function() M.last_pass() end, 'Last pass')
 
-  vim.keymap.set('n', '<S-Tab>', goto_prev_changed_pass_line, {
-    buffer = bufnr,
-    desc = 'Previous changed pass'
-  })
+  -- Show remarks popup
+  set_keymap(keymaps.show_remarks, function() M.show_remarks_popup() end, 'Show remarks for current pass')
+  set_keymap(keymaps.show_all_remarks, function() M.show_all_remarks_popup() end, 'Show ALL remarks from all passes')
 
-  -- Fold/unfold groups
-  vim.keymap.set('n', 'o', function()
-    M.toggle_fold_under_cursor()
-  end, {
-    buffer = bufnr,
-    desc = 'Toggle fold'
-  })
+  -- Toggle inline hints
+  set_keymap(keymaps.toggle_inline_hints, function() M.toggle_inline_hints() end, 'Toggle inline hints on/off')
 
-  -- Enter: fold/unfold or select pass
-  vim.keymap.set('n', '<CR>', function()
-    M.activate_line_under_cursor()
-  end, {
-    buffer = bufnr,
-    desc = 'Toggle fold or select pass'
-  })
+  -- Show help menu
+  set_keymap(keymaps.show_help, function() M.show_help_menu() end, 'Show help menu')
 
-  vim.keymap.set('n', 'q', function()
+  -- Quit
+  set_keymap(keymaps.quit, function()
     M.cleanup()
     vim.cmd('quit')
-  end, {
-    buffer = bufnr,
-    desc = 'Quit pipeline viewer'
-  })
+  end, 'Quit pipeline viewer')
 
-  vim.keymap.set('n', 'g[', function() M.first_pass() end, {
-    buffer = bufnr,
-    desc = 'First pass'
-  })
-
-  vim.keymap.set('n', 'g]', function() M.last_pass() end, {
-    buffer = bufnr,
-    desc = 'Last pass'
-  })
-
-  -- Show optimization remarks popup
-  vim.keymap.set('n', 'R', function() M.show_remarks_popup() end, {
-    buffer = bufnr,
-    desc = 'Show optimization remarks'
-  })
-
-  vim.keymap.set('n', 'gr', function() M.show_remarks_popup() end, {
-    buffer = bufnr,
-    desc = 'Show optimization remarks'
-  })
-
-  -- Also add commands that work from any window
+  -- Also add commands that work from any window (before/after panes)
   vim.keymap.set('n', ']p', function() M.next_pass() end, {
     buffer = M.state.before_bufnr,
     desc = 'Next pass'
