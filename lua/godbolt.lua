@@ -636,7 +636,7 @@ function M.godbolt_pipeline(args_str)
 
   if args_str ~= "" then
     -- Normalize O-level format: accept O2, 02, -O2, etc.
-    local o_match = args_str:match("^%-?O?(%d)$")
+    local o_match = args_str:match("^%-?O?([0123sz])$")
     if o_match then
       -- It's an O-level: O2, 2, -O2, etc.
       -- For .ll files, convert to pipeline string
@@ -651,7 +651,7 @@ function M.godbolt_pipeline(args_str)
       if file:match("%.ll$") then
         passes_to_run = args_str
       else
-        print("[" .. get_timestamp() .. "] [Pipeline] C/C++ files only support O-levels (O0, O1, O2, O3)")
+        print("[" .. get_timestamp() .. "] [Pipeline] C/C++ files only support O-levels (O0, O1, O2, O3, Os, Oz)")
         print("[" .. get_timestamp() .. "] [Pipeline] For custom passes, compile to .ll first:")
         print("  :Godbolt -emit-llvm -O0 -Xclang -disable-O0-optnone")
         print("  Then in the .ll file: :GodboltPipeline mem2reg,instcombine")

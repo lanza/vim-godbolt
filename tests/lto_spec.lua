@@ -154,7 +154,7 @@ describe("LTO module", function()
       local main_c = vim.fn.fnamemodify("tests/fixtures/lto_simple/main.c", ":p")
       local utils_c = vim.fn.fnamemodify("tests/fixtures/lto_simple/utils.c", ":p")
 
-      for _, opt_level in ipairs({"-O0", "-O1", "-O2", "-O3"}) do
+      for _, opt_level in ipairs({"-O0", "-O1", "-O2", "-O3", "-Os", "-Oz"}) do
         local success, output = lto.run_lto_pipeline({main_c, utils_c}, opt_level, "")
         assert.is_true(success, opt_level .. " should work")
         assert.is.truthy(#output > 0, opt_level .. " should produce output")
