@@ -58,7 +58,8 @@ function M.extract_function(ir_lines, func_name)
 end
 
 -- Filter debug metadata from LLVM IR for display
--- Removes debug intrinsic lines (#dbg_declare, #dbg_value) and inline metadata references
+-- Removes debug intrinsic lines (#dbg_declare, #dbg_value) and debug metadata
+-- Preserves PGO metadata (!prof, branch_weights, function_entry_count, etc.)
 -- @param ir_lines: array of LLVM IR lines
 -- @return: filtered_lines, line_map
 --   - filtered_lines: array with debug metadata removed
@@ -75,31 +76,31 @@ function M.filter_debug_metadata(ir_lines)
       goto continue
     end
 
-    -- Filter out metadata DEFINITIONS:
-    -- - !123 = !{...}  (numbered metadata)
-    -- - !llvm.ident, !llvm.module.flags, etc.
-    local is_metadata_def = line:match("^![0-9]+ = ") or -- !123 = !{...}
-        line:match("^!llvm%.") or                        -- !llvm.ident = !{...}
-        line:match("^!%.")                               -- !.something
+    -- Filter out DEBUG-SPECIFIC metadata DEFINITIONS:
+    -- Keep: !20 = !{!"function_entry_count", i64 100000}  (PGO)
+    -- Keep: !21 = !{!"branch_weights", i32 90000, i32 10000}  (PGO)
+    -- Remove: !10 = distinct !DISubprogram(...)  (debug)
+    -- Remove: !11 = !DILocation(...)  (debug)
+    -- Remove: !llvm.dbg.cu = !{!0}  (debug module metadata)
+    local is_debug_metadata = line:match("^![0-9]+ = .*!DI") or  -- !10 = ...!DILocation/!DISubprogram/etc
+        line:match("^!llvm%.dbg%.") or                          -- !llvm.dbg.cu, !llvm.dbg.sp, etc
+        line:match("^![0-9]+ = !DI")                            -- !10 = !DILocation(...)
 
-    if is_metadata_def then
+    if is_debug_metadata then
       goto continue
     end
 
-    -- Remove inline metadata REFERENCES from instruction lines
-    -- This handles: !dbg !XX, !tbaa !XX, !llvm.loop !XX, etc.
+    -- Remove inline DEBUG metadata REFERENCES from instruction lines
+    -- Keep: !prof !20 (PGO profiling metadata)
+    -- Remove: !dbg !11 (debug location metadata)
     local cleaned_line = line
 
-    -- Remove metadata at end of instructions: ", !dbg !19", ", !tbaa !43", etc.
-    -- Pattern: comma, optional spaces, !, word chars/dots, space, !, digits
-    cleaned_line = cleaned_line:gsub(",%s*![%w%.]+%s+![0-9]+", "")
+    -- Remove debug metadata at end of instructions: ", !dbg !19"
+    cleaned_line = cleaned_line:gsub(",%s*!dbg%s+![0-9]+", "")
 
-    -- Remove any remaining standalone metadata refs: ", !15"
-    cleaned_line = cleaned_line:gsub(",%s*![0-9]+", "")
-
-    -- Remove space-separated metadata (like on define lines): " !dbg !17"
+    -- Remove space-separated debug metadata (like on define lines): " !dbg !17"
     -- This appears without a comma, e.g., "define ... ) #0 !dbg !17 {"
-    cleaned_line = cleaned_line:gsub("%s+![%w%.]+%s+![0-9]+", "")
+    cleaned_line = cleaned_line:gsub("%s+!dbg%s+![0-9]+", "")
 
     table.insert(filtered, cleaned_line)
 
