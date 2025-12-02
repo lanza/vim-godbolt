@@ -2442,6 +2442,19 @@ function M.setup_keymaps()
     buffer = M.state.after_bufnr,
     desc = 'Previous pass'
   })
+
+  -- Set up CursorMoved autocmd for j/k navigation in pass list
+  -- This ensures the diff updates when moving with j/k
+  vim.api.nvim_create_autocmd("CursorMoved", {
+    buffer = M.state.pass_list_bufnr,
+    callback = function()
+      -- Use vim.schedule to avoid errors during cursor movement
+      vim.schedule(function()
+        M.select_pass_for_viewing()
+      end)
+    end,
+    desc = "Update diff when cursor moves in pass list"
+  })
 end
 
 -- Cleanup viewer state
