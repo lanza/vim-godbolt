@@ -11,18 +11,61 @@ local ir_utils = require('godbolt.ir_utils')
 M.debug = false
 
 -- Helper: Normalize O-level input to clang format
--- @param input: "O2", "2", "-O2", "default<O2>"
+-- @param input: "O2", "2", "-O2", "Os", "Oz", "default<O2>"
 -- @return: "-O2" or nil if not an O-level
 local function normalize_o_level(input)
+  -- Check for numeric O-levels: O0, O1, O2, O3
   local level = input:match("^%-?O?(%d)$")
   if level then
     return "-O" .. level
-  elseif input:match("^default%<O(%d)%>$") then
+  end
+
+  -- Check for size O-levels: Os, Oz
+  if input:match("^%-?Os$") then
+    return "-Os"
+  elseif input:match("^%-?Oz$") then
+    return "-Oz"
+  end
+
+  -- Check for default<O2> format
+  if input:match("^default%<O(%d)%>$") then
     level = input:match("^default%<O(%d)%>$")
     return "-O" .. level
-  else
-    return nil
   end
+
+  return nil
+end
+
+-- Helper: Parse C/C++ pipeline arguments to extract O-level and additional flags
+-- @param passes_str: string containing O-level and/or additional flags
+-- @return: opt_level (string like "-O2"), additional_flags (array of strings)
+local function parse_clang_pipeline_args(passes_str)
+  local opt_level = nil
+  local additional_flags = {}
+
+  -- Split passes_str into individual arguments
+  local args = {}
+  for arg in passes_str:gmatch("%S+") do
+    table.insert(args, arg)
+  end
+
+  -- Look for O-level in the arguments
+  for _, arg in ipairs(args) do
+    local normalized = normalize_o_level(arg)
+    if normalized then
+      opt_level = normalized
+    else
+      -- Not an O-level, add to additional flags
+      table.insert(additional_flags, arg)
+    end
+  end
+
+  -- Default to O2 if no O-level found
+  if not opt_level then
+    opt_level = "-O2"
+  end
+
+  return opt_level, additional_flags
 end
 
 -- Helper: Check if IR lines contain LLVM IR (not MIR or other formats)
@@ -162,7 +205,6 @@ run_opt_pipeline_async = function(input_file, passes_str, opts, callback)
   -- Build command parts
   local cmd_parts = {
     "opt",
-    "--strip-debug",
     "-passes=" .. passes_str,
     "--print-changed",
     "--print-module-scope",  -- Always print full module IR (not just function/loop fragments)
@@ -314,16 +356,19 @@ end
 run_clang_pipeline_async = function(input_file, passes_str, lang_args, opts, callback)
   opts = opts or {}
 
-  -- Validate: only O-levels for C/C++
-  local opt_level = normalize_o_level(passes_str)
-  if not opt_level then
-    print("[" .. get_timestamp() .. "] [Pipeline] C/C++ files only support O-levels (O0, O1, O2, O3)")
-    print("[" .. get_timestamp() .. "] [Pipeline] For custom passes, compile to .ll first")
+  -- Parse passes_str to extract O-level and additional flags
+  local opt_level, additional_flags = parse_clang_pipeline_args(passes_str)
+
+  -- Check for LTO flags in additional flags
+  local additional_args_str = table.concat(additional_flags, " ")
+  if has_lto_flags(additional_args_str) then
+    print("[" .. get_timestamp() .. "] [Pipeline] Error: LTO flags detected in compiler arguments")
+    print("[" .. get_timestamp() .. "] [Pipeline] Remove -flto or similar flags to view pipeline")
     vim.schedule(function() callback(nil) end)
     return
   end
 
-  -- Check for LTO flags
+  -- Check for LTO flags in lang_args
   local args_str = type(lang_args) == "table" and table.concat(lang_args, " ") or (lang_args or "")
   if has_lto_flags(args_str) then
     print("[" .. get_timestamp() .. "] [Pipeline] Error: LTO flags detected in compiler arguments")
@@ -377,6 +422,11 @@ run_clang_pipeline_async = function(input_file, passes_str, lang_args, opts, cal
         table.insert(cmd_parts, arg)
       end
     end
+  end
+
+  -- Add additional flags from GodboltPipeline command
+  for _, flag in ipairs(additional_flags) do
+    table.insert(cmd_parts, flag)
   end
 
   table.insert(cmd_parts, "-S")
@@ -555,11 +605,11 @@ function M.ir_equal(ir1, ir2)
   return true
 end
 
--- Get stripped input IR
--- For .ll files: runs opt --strip-debug
+-- Get input IR
+-- For .ll files: runs opt to normalize the IR format
 -- For .c/.cpp files: uses cached initial IR if available, otherwise compiles to LLVM IR with -O0
 -- @param input_file: path to .ll, .c, or .cpp file
--- @return: array of IR lines with debug info removed
+-- @return: array of IR lines
 function M.get_stripped_input(input_file)
   -- Handle C/C++ files by checking cache first, then compiling to LLVM IR
   if input_file:match("%.c$") or input_file:match("%.cpp$") then
@@ -637,11 +687,11 @@ function M.get_stripped_input(input_file)
     return lines
   end
 
-  -- Handle .ll files with opt --strip-debug
-  local cmd = string.format('opt --strip-debug -S "%s" 2>&1', input_file)
+  -- Handle .ll files with opt to normalize format
+  local cmd = string.format('opt -S "%s" 2>&1', input_file)
 
   if M.debug then
-    print("[Pipeline Debug] Getting stripped input with: " .. cmd)
+    print("[Pipeline Debug] Getting input IR with: " .. cmd)
   end
 
   local output = vim.fn.system(cmd)
@@ -649,7 +699,7 @@ function M.get_stripped_input(input_file)
   -- Check for errors
   if output:match("^opt:") or output:match("\nopt:") then
     if M.debug then
-      print("[Pipeline Debug] Error stripping input, falling back to raw file")
+      print("[Pipeline Debug] Error processing input, falling back to raw file")
     end
     return M.read_input_file(input_file)
   end
@@ -661,13 +711,13 @@ function M.get_stripped_input(input_file)
   end
 
   if M.debug then
-    print(string.format("[Pipeline Debug] Got %d lines of stripped input", #lines))
+    print(string.format("[Pipeline Debug] Got %d lines of input IR", #lines))
   end
 
   return lines
 end
 
--- Read and parse the input LLVM IR file (raw, with debug info)
+-- Read and parse the input LLVM IR file (preserves all metadata and debug info)
 -- @param input_file: path to .ll file
 -- @return: array of IR lines
 function M.read_input_file(input_file)

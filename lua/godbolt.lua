@@ -13,7 +13,7 @@ end
 ---@field show_compilation_cmd boolean Show compilation command when debug info fails
 
 ---@class GodboltDisplay
----@field strip_debug_metadata boolean Hide debug metadata (!123 = !{...}) in LLVM IR display
+---@field strip_debug_metadata boolean When true, filters out debug metadata (!dbg, !DILocation, !DISubprogram) but preserves PGO metadata (!prof, branch_weights). Default: true
 
 ---@class GodboltRemarksInlineHints
 ---@field enabled boolean Show remarks as inline hints by default
@@ -98,7 +98,7 @@ M.config = {
 
   -- Display configuration
   display = {
-    strip_debug_metadata = true, -- Hide debug metadata (!123 = !{...}) in LLVM IR display
+    strip_debug_metadata = true, -- Filter debug metadata (!dbg, !DILocation) but keep PGO metadata (!prof, branch_weights)
   },
 
   -- Pipeline configuration
@@ -651,16 +651,8 @@ function M.godbolt_pipeline(args_str)
         passes_to_run = args_str
       end
     else
-      -- Custom pass list (only for .ll files)
-      if file:match("%.ll$") then
-        passes_to_run = args_str
-      else
-        print("[" .. get_timestamp() .. "] [Pipeline] C/C++ files only support O-levels (O0, O1, O2, O3, Os, Oz)")
-        print("[" .. get_timestamp() .. "] [Pipeline] For custom passes, compile to .ll first:")
-        print("  :Godbolt -emit-llvm -O0 -Xclang -disable-O0-optnone")
-        print("  Then in the .ll file: :GodboltPipeline mem2reg,instcombine")
-        return
-      end
+      -- Custom pass list for .ll files, or arbitrary compiler flags for C/C++
+      passes_to_run = args_str
     end
   elseif pipeline_str then
     -- Custom pipeline only for .ll files
