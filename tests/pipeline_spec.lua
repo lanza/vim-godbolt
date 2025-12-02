@@ -18,11 +18,9 @@ describe("pipeline parser", function()
 
       assert.are.equal("SROAPass on simple", passes[1].name)
 
-      -- Pass should only contain the simple function (no metadata)
+      -- Pass should only contain the simple function (metadata is preserved)
       local ir_text = table.concat(passes[1].ir, "\n")
       assert.is_not_nil(ir_text:match("define i32 @simple"), "Pass should contain @simple function")
-      assert.is_nil(ir_text:match("ModuleID"), "Should not contain ModuleID")
-      assert.is_nil(ir_text:match("source_filename"), "Should not contain source_filename")
     end)
 
     it("parses single function with multiple passes", function()
@@ -62,25 +60,26 @@ describe("pipeline parser", function()
       assert.are.equal("SROAPass on bar", passes[3].name)
       assert.are.equal("InstCombinePass on bar", passes[4].name)
 
-      -- Each function pass should ONLY show one function
+      -- With --print-module-scope, each pass shows the FULL module
+      -- (both functions are present), not just the individual function
       local sroa_foo_text = table.concat(passes[1].ir, "\n")
       assert.is_not_nil(sroa_foo_text:match("define i32 @foo"), "SROAPass on foo should contain @foo")
-      assert.is_nil(sroa_foo_text:match("define i32 @bar"), "SROAPass on foo should NOT contain @bar")
+      assert.is_not_nil(sroa_foo_text:match("define i32 @bar"), "With --print-module-scope, should contain full module")
 
       local instcombine_foo_text = table.concat(passes[2].ir, "\n")
       assert.is_not_nil(instcombine_foo_text:match("define i32 @foo"), "InstCombinePass on foo should contain @foo")
-      assert.is_nil(instcombine_foo_text:match("define i32 @bar"), "InstCombinePass on foo should NOT contain @bar")
+      assert.is_not_nil(instcombine_foo_text:match("define i32 @bar"), "With --print-module-scope, should contain full module")
 
       local sroa_bar_text = table.concat(passes[3].ir, "\n")
       assert.is_not_nil(sroa_bar_text:match("define i32 @bar"), "SROAPass on bar should contain @bar")
-      assert.is_nil(sroa_bar_text:match("define i32 @foo"), "SROAPass on bar should NOT contain @foo")
+      assert.is_not_nil(sroa_bar_text:match("define i32 @foo"), "With --print-module-scope, should contain full module")
 
       local instcombine_bar_text = table.concat(passes[4].ir, "\n")
       assert.is_not_nil(instcombine_bar_text:match("define i32 @bar"), "InstCombinePass on bar should contain @bar")
-      assert.is_nil(instcombine_bar_text:match("define i32 @foo"), "InstCombinePass on bar should NOT contain @foo")
+      assert.is_not_nil(instcombine_bar_text:match("define i32 @foo"), "With --print-module-scope, should contain full module")
     end)
 
-    it("cleans metadata from IR", function()
+    it("preserves module metadata in IR", function()
       local test_file = vim.fn.fnamemodify("tests/fixtures/two_funcs.ll", ":p")
 
       local passes
@@ -92,10 +91,8 @@ describe("pipeline parser", function()
       assert.is_not_nil(passes)
       for _, pass in ipairs(passes) do
         local ir_text = table.concat(pass.ir, "\n")
-        -- Should not have metadata
-        assert.is_nil(ir_text:match("ModuleID"), "Should not contain ModuleID")
-        assert.is_nil(ir_text:match("source_filename"), "Should not contain source_filename")
-        assert.is_nil(ir_text:match("target datalayout"), "Should not contain target datalayout")
+        -- Module metadata should be preserved
+        assert.is_not_nil(ir_text:match("ModuleID"), "Should contain ModuleID")
       end
     end)
   end)
