@@ -881,7 +881,11 @@ end
 
 -- Show diff between pass N-1 and pass N
 -- @param index: pass index (1-based)
-function M.show_diff(index)
+-- @param auto_unfold: whether to auto-unfold groups (defaults to true for Tab/Shift-Tab)
+function M.show_diff(index, auto_unfold)
+  -- auto_unfold defaults to true for backward compatibility (Tab/Shift-Tab behavior)
+  auto_unfold = auto_unfold ~= false
+
   local info = debug.getinfo(2, "Sl")
   local caller = string.format("%s:%d", info.short_src:match("([^/]+)$") or info.short_src, info.currentline)
   if #M.state.passes == 0 then
@@ -955,8 +959,8 @@ function M.show_diff(index)
     vim.cmd('diffthis')
   end)
 
-  -- Update pass list highlighting
-  M.update_pass_list_cursor(old_index, index)
+  -- Update pass list highlighting (pass through auto_unfold parameter)
+  M.update_pass_list_cursor(old_index, index, auto_unfold)
 
   -- Print stats
   if M.state.config.show_stats then
@@ -1786,58 +1790,68 @@ function M.show_remarks_popup()
   vim.keymap.set('n', '<CR>', '<cmd>close<CR>', opts)
 end
 
-function M.update_pass_list_cursor(old_index, new_index)
+function M.update_pass_list_cursor(old_index, new_index, auto_unfold)
+  -- auto_unfold defaults to true for backward compatibility (Tab/Shift-Tab behavior)
+  auto_unfold = auto_unfold ~= false
+
   -- Move cursor to the selected line
   local line_map = M.state.pass_list_line_map
   if not line_map then return end
 
-  -- For function/loop/cgscc passes, ensure their group is unfolded
-  local target_pass = M.state.passes[new_index]
-  if target_pass and (target_pass.scope_type == "function" or target_pass.scope_type == "cgscc" or target_pass.scope_type == "loop") then
-    -- Find which group this pass belongs to
-    local groups = M.state.grouped_passes
-    if groups then
-      for group_idx, group in ipairs(groups) do
-        if group.type == "function_group" or group.type == "cgscc_group" then
-          if group.functions then
-            for _, fn in ipairs(group.functions) do
-              if fn.original_index == new_index then
-                -- Found the group containing this pass
-                if group.folded then
-                  -- Unfold it
-                  group.folded = false
-                  M.populate_pass_list() -- Rebuild to show function entries
-                  line_map = M.state.pass_list_line_map -- Get updated line_map
+  -- Only auto-unfold groups when explicitly enabled (Tab/Shift-Tab navigation)
+  if auto_unfold then
+    -- For function/loop/cgscc passes, ensure their group is unfolded
+    local target_pass = M.state.passes[new_index]
+    if target_pass and (target_pass.scope_type == "function" or target_pass.scope_type == "cgscc" or target_pass.scope_type == "loop") then
+      -- Find which group this pass belongs to
+      local groups = M.state.grouped_passes
+      if groups then
+        for group_idx, group in ipairs(groups) do
+          if group.type == "function_group" or group.type == "cgscc_group" then
+            if group.functions then
+              for _, fn in ipairs(group.functions) do
+                if fn.original_index == new_index then
+                  -- Found the group containing this pass
+                  if group.folded then
+                    -- Unfold it
+                    group.folded = false
+                    M.populate_pass_list() -- Rebuild to show function entries
+                    line_map = M.state.pass_list_line_map -- Get updated line_map
+                  end
+                  break
                 end
-                break
               end
             end
           end
         end
       end
     end
+
+    -- Clear the on_group_header flag so we move to the function entry, not the group header
+    M.state.on_group_header = false
   end
 
-  -- Clear the on_group_header flag so we move to the function entry, not the group header
-  M.state.on_group_header = false
-
-  -- Find the line corresponding to new_index
-  for line_idx, info in pairs(line_map) do
-    if info.type == "module" and info.original_index == new_index then
-      pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, { line_idx, 0 })
-      -- Update selection highlighting AFTER unfolding and cursor positioning
-      M.update_selection_highlighting()
-      return
-    elseif info.type == "function_entry" and info.original_index == new_index then
-      -- Move to function entry (not group header)
-      pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, { line_idx, 0 })
-      -- Update selection highlighting AFTER unfolding and cursor positioning
-      M.update_selection_highlighting()
-      return
+  -- Only move cursor when auto_unfold is enabled (Tab/Shift-Tab)
+  -- For j/k navigation, we just update highlighting without moving cursor
+  if auto_unfold then
+    -- Find the line corresponding to new_index
+    for line_idx, info in pairs(line_map) do
+      if info.type == "module" and info.original_index == new_index then
+        pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, { line_idx, 0 })
+        -- Update selection highlighting AFTER unfolding and cursor positioning
+        M.update_selection_highlighting()
+        return
+      elseif info.type == "function_entry" and info.original_index == new_index then
+        -- Move to function entry (not group header)
+        pcall(vim.api.nvim_win_set_cursor, M.state.pass_list_winid, { line_idx, 0 })
+        -- Update selection highlighting AFTER unfolding and cursor positioning
+        M.update_selection_highlighting()
+        return
+      end
     end
   end
 
-  -- If we didn't find the line, still update highlighting
+  -- Always update highlighting
   M.update_selection_highlighting()
 end
 
@@ -2299,19 +2313,23 @@ function M.select_pass_for_viewing()
       pcall(vim.api.nvim_buf_set_name, M.state.after_bufnr,
         string.format("%d functions", #group.functions))
 
-      -- Update markers to remove function marker
-      M.update_pass_list_cursor(old_index, M.state.current_index)
+      -- DON'T call M.update_pass_list_cursor for j/k navigation!
+      -- This was causing the cursor to bounce back to the first function entry
+      -- Just update highlighting without moving cursor
+      M.update_selection_highlighting()
     end
     return
   elseif line_info.type == "function_entry" then
     -- On a function entry: show diff for that function
     M.state.on_group_header = false -- Clear flag
-    M.show_diff(line_info.original_index)
+    -- Pass auto_unfold=false to prevent j/k from unfolding groups
+    M.show_diff(line_info.original_index, false)
     return
   elseif line_info.type == "module" then
     -- On a module pass: show diff
     M.state.on_group_header = false -- Clear flag
-    M.show_diff(line_info.original_index)
+    -- Pass auto_unfold=false to prevent j/k from unfolding groups
+    M.show_diff(line_info.original_index, false)
     return
   end
 
