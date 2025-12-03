@@ -5,3 +5,4 @@ compare
 a.out
 numbers
 .tests/
+.godbolt-pipeline/

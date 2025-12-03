@@ -53,6 +53,15 @@ function M.setup(source_bufnr, input_file, passes, config)
   }
   config = vim.tbl_deep_extend("force", default_config, config)
 
+  -- Check if loaded from session
+  if config.loaded_from_session and config.session_metadata then
+    vim.notify(string.format(
+      "[Pipeline] Loaded session: %s (%d passes)",
+      config.session_metadata.name or os.date("%Y-%m-%d %H:%M", config.session_metadata.timestamp),
+      #passes
+    ))
+  end
+
   -- Filter passes if requested
   if config.filter_unchanged then
     local pipeline = require('godbolt.pipeline')
@@ -69,6 +78,13 @@ function M.setup(source_bufnr, input_file, passes, config)
   M.state.source_bufnr = source_bufnr
   M.state.input_file = input_file
   M.state.config = config
+
+  -- Store additional metadata for session saving
+  M.state.source_file = input_file  -- The LLVM IR input file
+  M.state.initial_ir = passes[1] and passes[1]._initial_ir or nil  -- Extract initial IR
+  M.state.opt_level = config.opt_level  -- Optimization level if available
+  M.state.compilation_command = config.compilation_command  -- Original compilation command
+  M.state.compiler = config.compiler  -- Compiler used
 
   -- OPTIMIZATION: Build module pass index for O(1) lookups instead of O(n) scans
   -- This dramatically speeds up get_before_ir_for_pass() for module passes
@@ -2505,6 +2521,12 @@ function M.cleanup()
     after_winid = nil,
     config = nil,
     ns_id = M.state.ns_id, -- Keep namespace
+    -- Session-related fields
+    source_file = nil,
+    initial_ir = nil,
+    opt_level = nil,
+    compilation_command = nil,
+    compiler = nil,
   }
 end
 
